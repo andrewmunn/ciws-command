@@ -31,8 +31,8 @@ bun test          # or: bun run test
 ```
 
 It covers `utils`, `physics`, the entities (ballistics, drag, MIRV split,
-interceptor boost/coast/energy), the weapon systems, the high-score table, and
-the `Game` orchestration (waves, spawning/threat gating, collisions & HP,
+interceptor boost/coast/energy), the weapon systems, the high-score table, the
+save checkpoint, and the `Game` orchestration (waves, spawning/threat gating, collisions & HP,
 bounties, impacts and nuke air-bursts, bombers, the autonomous launcher and
 laser, the economy, the shop, and win/lose conditions).
 
@@ -53,7 +53,7 @@ marked with a DEV badge and never touch the high-score table.
 | `P` | Pause / resume |
 | `R` | Restart |
 | `M` | Mute / unmute |
-| `Space` / click | Deploy from the tutorial screen / restart after game over |
+| `Space` / click | Deploy from the tutorial screen / restart after game over (with a saved run, `Space` continues it) |
 
 You aim; everything fires itself. The CIWS shoots wherever you point it (and
 holds fire when the sky is clear), interceptors launch themselves at distant
@@ -148,6 +148,14 @@ Prices, amounts and earnings live in `config.economy`, `config.shop`, and
   launcher and laser come back fully charged.
 - Game over shows a **local high-score table** (top 10, stored in
   localStorage) with your run highlighted.
+- Progress is **checkpointed in localStorage** whenever a wave is cleared —
+  before any armory spending, so a closed tab isn't a lost run: the menu
+  offers **CONTINUE** (resume **at the armory** before the saved wave —
+  upgrades, credits and rubble intact, shopping never skipped) or **NEW
+  GAME** (forfeits the save). A reload after shopping simply refunds those
+  purchases to re-pick; the next wave clear banks them. Game over deletes
+  the checkpoint — defeat is final. Dev-console runs (sandbox / god mode)
+  never touch it.
 
 ### Threats
 
@@ -210,6 +218,7 @@ fully offline.
 | `js/entities.js` | `City`, `Turret`, `Bullet`, `EnemyMissile`, `Interceptor`, `Flare`, `Particle` (data + update, no draw) |
 | `js/weapons.js` | `CIWSWeapon`, `InterceptorWeapon`, `LaserWeapon` — stats, upgrades, fire logic |
 | `js/scores.js` | Local high-score table (localStorage, injectable for tests) |
+| `js/save.js` | Run checkpoint save slot (localStorage, injectable for tests) |
 | `js/audio.js` | Procedural Web Audio SFX + speech announcements (singleton `sfx`) |
 | `js/renderer3d.js` | `Renderer`: Three.js scene, bloom, GPU buffers, projection |
 | `js/game.js` | `Game`: state machine, waves, input, simulation, 2D HUD |

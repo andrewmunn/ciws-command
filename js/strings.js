@@ -32,6 +32,12 @@ export const STRINGS = {
   ],
   keysHint: 'P pause     R restart     M mute',
   deploy: 'CLICK OR PRESS SPACE TO DEPLOY',
+  // Shown instead of `deploy` when a saved run is waiting to be resumed.
+  menu: {
+    continueRun: (wave) => `CONTINUE — WAVE ${wave}`,
+    newGame: 'NEW GAME',
+    continueHint: 'SPACE continues the saved run — NEW GAME forfeits it',
+  },
 
   // --- In-game HUD -----------------------------------------------------------
   hud: {

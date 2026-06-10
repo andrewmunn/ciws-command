@@ -19,6 +19,7 @@ import {
 import { CIWSWeapon, InterceptorWeapon, LaserWeapon } from './weapons.js';
 import { sfx } from './audio.js';
 import { scoreboard } from './scores.js';
+import { saveSlot, SAVE_VERSION } from './save.js';
 import { STRINGS } from './strings.js';
 
 const C = CONFIG.colors;
@@ -74,6 +75,8 @@ export class Game {
 
     this.state = 'menu'; // menu | playing | intermission | gameover
     this.scoreboard = scoreboard; // injectable for tests
+    this.saveSlot = saveSlot; // injectable for tests
+    this.savedRun = this.saveSlot.load(); // checkpoint offered on the menu
     this.lastRun = null; // { scores, rank } from the most recent game over
     this.paused = false;
     this.time = 0; // accumulates for HUD animations
@@ -202,6 +205,36 @@ export class Game {
   // Game flow
   // -------------------------------------------------------------------------
   startGame() {
+    // A fresh deployment abandons any saved checkpoint.
+    this.saveSlot.clear();
+    this.savedRun = null;
+    this.resetRun();
+    this.startWave(1);
+  }
+
+  /**
+   * Resume the saved checkpoint: a clean reset, then the snapshot on top.
+   * The run picks back up at the armory before the saved wave — checkpoints
+   * are taken between waves, so the shop is exactly where a reload landed
+   * (and an extra visit costs nothing: credits and stock are in the save).
+   */
+  continueGame() {
+    const s = this.savedRun;
+    if (!s) {
+      this.startGame();
+      return;
+    }
+    this.resetRun();
+    this.applyRun(s);
+    this.wave = s.wave - 1;
+    this.nextWave = s.wave;
+    this.waveEarned = s.waveEarned ?? 0;
+    this.waveBreakdown = s.waveBreakdown ?? null;
+    this.state = 'intermission';
+  }
+
+  /** Wipe every piece of run state back to a brand-new game. */
+  resetRun() {
     this.cities = [];
     this.turrets = [];
     this.missiles = [];
@@ -226,16 +259,89 @@ export class Game {
     this.devSpawnTimer = 0;
     this.layout();
     this.renderer.syncStructures(this); // rebuild meshes for the fresh skyline
-    this.startWave(1);
+  }
+
+  /**
+   * Push a saved checkpoint into freshly reset state. Levels are clamped to
+   * the current config so a stale or hand-edited save can't index past an
+   * upgrade table.
+   */
+  applyRun(s) {
+    const level = (n, max) => clamp(Math.trunc(n) || 0, 0, max);
+    this.score = s.score;
+    this.credits = s.credits;
+    this.ciws.fireRateLevel = level(
+      s.ciws?.fireRateLevel,
+      CONFIG.shop.fireRateCosts.length
+    );
+    this.ciws.twin = !!s.ciws?.twin;
+    if (s.interceptor?.owned) this.interceptorWeapon.buy();
+    this.interceptorWeapon.cooldownLevel = level(
+      s.interceptor?.cooldownLevel,
+      CONFIG.interceptor.cooldowns.length - 1
+    );
+    if (s.laser?.owned) this.laser.buy();
+    this.laser.level = level(s.laser?.level, CONFIG.laser.cooldowns.length - 1);
+
+    // Cities lost in earlier waves stay lost — that's the run's scar tissue.
+    const markDead = (saved, live) => {
+      for (let i = 0; i < live.length && i < saved.length; i++) {
+        if (saved[i] && saved[i].alive === false) {
+          live[i].alive = false;
+          live[i].destroyedWave = saved[i].destroyedWave ?? 0;
+        }
+      }
+    };
+    markDead(s.cities, this.cities);
+    markDead(s.turrets, this.turrets);
+
+    // Re-buy the shield levels so the dome lands on the (alive) gun exactly
+    // as the shop would have fitted it.
+    for (let i = 0; i < level(s.shieldLevel, CONFIG.shield.costs.length); i++) {
+      this.buyGunShield();
+    }
+  }
+
+  /**
+   * The checkpoint snapshot, taken on wave clear. `wave` is the upcoming
+   * wave; the waveEarned / waveBreakdown fields redraw the armory's credit
+   * summary on resume.
+   */
+  serializeRun() {
+    return {
+      v: SAVE_VERSION,
+      wave: this.nextWave,
+      score: this.score,
+      credits: this.credits,
+      waveEarned: this.waveEarned,
+      waveBreakdown: this.waveBreakdown,
+      shieldLevel: this.shieldLevel,
+      ciws: { fireRateLevel: this.ciws.fireRateLevel, twin: this.ciws.twin },
+      interceptor: {
+        owned: this.interceptorWeapon.owned,
+        cooldownLevel: this.interceptorWeapon.cooldownLevel,
+      },
+      laser: { owned: this.laser.owned, level: this.laser.level },
+      cities: this.cities.map((c) => ({
+        alive: c.alive,
+        destroyedWave: c.destroyedWave ?? null,
+      })),
+      turrets: this.turrets.map((t) => ({
+        alive: t.alive,
+        destroyedWave: t.destroyedWave ?? null,
+      })),
+    };
   }
 
   /**
    * Dev sandbox: a fresh run that loops one scenario forever — no wave end,
    * just the chosen threat respawning so its behaviour (and the autonomous
-   * weapons' response) can be watched in isolation.
+   * weapons' response) can be watched in isolation. It never touches the
+   * saved checkpoint — a real run can be resumed after sandboxing.
    */
   startSandbox(scenario) {
-    this.startGame();
+    this.resetRun();
+    this.startWave(1);
     this.devScenario = scenario;
     this.devSpawnTimer = 0;
     this.devMenuOpen = false;
@@ -304,6 +410,9 @@ export class Game {
     this.state = 'intermission';
     this.laserBeamLive = null;
     this.laser.target = null;
+    // A cleared wave is a checkpoint — closing the tab at the armory (or any
+    // time after) must not lose the run.
+    this.checkpoint();
     sfx.waveClear();
   }
 
@@ -343,6 +452,18 @@ export class Game {
     if (this.state === 'intermission') this.startWave(this.nextWave);
   }
 
+  /**
+   * Persist the run checkpoint. Taken once per wave, on wave clear — before
+   * any armory spending, so a reload simply refunds purchases made since
+   * (the next clear banks them). Doctored runs — a dev sandbox or god mode —
+   * are never saved, same rule as the high-score table.
+   */
+  checkpoint() {
+    if (this.devScenario || this.devInvincible) return;
+    this.savedRun = this.serializeRun();
+    this.saveSlot.save(this.savedRun);
+  }
+
   gameOver(reason = T.loss.fallback) {
     this.state = 'gameover';
     this.lossReason = reason;
@@ -353,6 +474,12 @@ export class Game {
       this.devScenario || this.devInvincible
         ? null
         : this.scoreboard.add(this.score, this.wave);
+    // Defeat is final: the checkpoint dies with the run (a doctored run never
+    // saved one, and mustn't wipe a real run's save either).
+    if (!this.devScenario && !this.devInvincible) {
+      this.saveSlot.clear();
+      this.savedRun = null;
+    }
     sfx.gameOver();
   }
 
@@ -1732,13 +1859,17 @@ export class Game {
         align: 'center',
         color: C.hudDim,
       });
-      this.text(T.deploy, cx, this.screenH * 0.88, {
-        size: 20,
-        align: 'center',
-        weight: 'bold',
-        color: C.crosshair,
-        glow: true,
-      });
+      if (this.savedRun) {
+        this.drawMenuSaveButtons(ctx, cx);
+      } else {
+        this.text(T.deploy, cx, this.screenH * 0.88, {
+          size: 20,
+          align: 'center',
+          weight: 'bold',
+          color: C.crosshair,
+          glow: true,
+        });
+      }
     } else if (this.state === 'intermission') {
       this.drawShop(ctx);
     } else if (this.state === 'gameover') {
@@ -1976,8 +2107,66 @@ export class Game {
     }
   }
 
-  /** Any click on the menu / game-over screen deploys. */
-  handleMenuClick() {
+  /** Continue / new-game button rects for the menu (when a checkpoint exists). */
+  menuLayout() {
+    const gap = 18;
+    const w = Math.min(240, (this.screenW - gap - 24) / 2);
+    const h = 46;
+    const y = this.screenH * 0.86 - h / 2;
+    const cx = this.screenW / 2;
+    return {
+      continueRect: { x: cx - w - gap / 2, y, w, h },
+      newRect: { x: cx + gap / 2, y, w, h },
+    };
+  }
+
+  /** A saved run on the menu: resume it, or deploy fresh (forfeits the save). */
+  drawMenuSaveButtons(ctx, cx) {
+    const { continueRect, newRect } = this.menuLayout();
+
+    const cr = continueRect;
+    const hoverC = this._inRect(this.pointerX, this.pointerY, cr);
+    ctx.fillStyle = hoverC ? 'rgba(255,179,71,0.9)' : 'rgba(255,179,71,0.55)';
+    this._roundRect(ctx, cr.x, cr.y, cr.w, cr.h, 6);
+    ctx.fill();
+    this.text(T.menu.continueRun(this.savedRun.wave), cr.x + cr.w / 2, cr.y + cr.h / 2 + 6, {
+      size: 17,
+      align: 'center',
+      weight: 'bold',
+      color: '#161008',
+    });
+
+    const nr = newRect;
+    const hoverN = this._inRect(this.pointerX, this.pointerY, nr);
+    ctx.fillStyle = hoverN ? C.shopRowHover : C.shopRow;
+    this._roundRect(ctx, nr.x, nr.y, nr.w, nr.h, 6);
+    ctx.fill();
+    this.text(T.menu.newGame, nr.x + nr.w / 2, nr.y + nr.h / 2 + 6, {
+      size: 17,
+      align: 'center',
+      weight: 'bold',
+      color: C.hud,
+    });
+
+    this.text(T.menu.continueHint, cx, cr.y + cr.h + 22, {
+      size: 12,
+      align: 'center',
+      color: C.hudDim,
+    });
+  }
+
+  /**
+   * Clicks on the menu / game-over screens. With a checkpoint on the menu the
+   * choice is explicit (continue vs new) and stray clicks do nothing — a
+   * misclick must not silently forfeit the save.
+   */
+  handleMenuClick(px, py) {
+    if (this.state === 'menu' && this.savedRun) {
+      const { continueRect, newRect } = this.menuLayout();
+      if (this._inRect(px, py, continueRect)) this.continueGame();
+      else if (this._inRect(px, py, newRect)) this.startGame();
+      return;
+    }
     this.startGame();
   }
 
@@ -2256,7 +2445,7 @@ export class Game {
       }
       // In play both weapons run themselves — clicks only drive the menus.
       if (this.state === 'menu' || this.state === 'gameover') {
-        this.handleMenuClick();
+        this.handleMenuClick(this.pointerX, this.pointerY);
       } else if (this.state === 'intermission') {
         this.handleShopClick(this.pointerX, this.pointerY);
       }
@@ -2267,7 +2456,7 @@ export class Game {
       const key = e.key.toLowerCase();
       sfx.unlock();
       if (key === ' ' || key === 'spacebar') e.preventDefault(); // no page scroll
-      this.handleKey(key);
+      this.handleKey(key, e);
     });
 
     window.addEventListener('resize', () => this.resize());
@@ -2283,7 +2472,11 @@ export class Game {
    * Route a (lowercased) key press. Space is context-sensitive: deploy on the
    * menu/game-over, advance in the shop.
    */
-  handleKey(key) {
+  handleKey(key, e = null) {
+    // Browser shortcuts reach the page as keydowns too: Cmd/Ctrl+R (reload)
+    // must not read as "R = restart", which forfeits the run's checkpoint
+    // just before the page goes away. Any modifier means it's not for us.
+    if (e && (e.metaKey || e.ctrlKey || e.altKey)) return;
     // Secret dev console: backquote toggles it from any state; while it is
     // up it swallows every key so hotkeys can't leak into the game below.
     if (key === '`') {
@@ -2300,8 +2493,15 @@ export class Game {
       return;
     }
     if (key === ' ' || key === 'spacebar') {
-      if (this.state === 'menu' || this.state === 'gameover') this.startGame();
-      else if (this.state === 'intermission') this.proceedToNextWave();
+      // On the menu, space resumes the checkpoint if there is one.
+      if (this.state === 'menu') {
+        if (this.savedRun) this.continueGame();
+        else this.startGame();
+      } else if (this.state === 'gameover') {
+        this.startGame();
+      } else if (this.state === 'intermission') {
+        this.proceedToNextWave();
+      }
       return;
     }
     if (this.state === 'intermission' && key >= '1' && key <= '9') {
