@@ -173,7 +173,10 @@ Prices, amounts and earnings live in `config.economy`, `config.shop`, and
 - Clearing a wave awards bonuses for surviving cities, and the interceptor
   launcher and laser come back fully charged.
 - Game over shows a **local high-score table** (top 10, stored in
-  localStorage) with your run highlighted.
+  localStorage) with your run highlighted. Scores are stamped with a
+  **balance version** (`BALANCE_VERSION` in `scores.js`): a rebalance bumps
+  it, which hides every older entry — scores from a different balance
+  aren't comparable — without deleting them from storage.
 - Progress is **checkpointed in localStorage** whenever a wave is cleared —
   before any armory spending, so a closed tab isn't a lost run: the menu
   offers **CONTINUE** (resume **at the armory** before the saved wave —
