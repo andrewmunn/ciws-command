@@ -16,7 +16,8 @@ export const MAX_SCORES = 10;
 // (weapon/enemy stats, economy, wave pacing...). Entries from the
 // pre-versioning era count as version 1.
 //   v2 — F-16 airstrike, MIRV nuke, laser buff, twin-barrel removal.
-export const BALANCE_VERSION = 2;
+//   v3 — armory repricing: laser 85->30, interceptor 12->30, strike 60->30.
+export const BALANCE_VERSION = 3;
 
 function defaultStorage() {
   try {

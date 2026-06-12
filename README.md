@@ -69,8 +69,8 @@ screen at the start covers all of this in-game.
   stream with the mouse and must lead targets. One tracer kills a standard
   RV. **If a warhead ever hits the gun, you instantly lose** — so anything
   heading for the centre is top priority.
-- **Interceptors (autonomous)** — a **cheap armory purchase** (the natural
-  first buy) that fields homing anti-missiles with unlimited stock, gated by
+- **Interceptors (autonomous)** — an **armory purchase** that fields homing
+  anti-missiles with unlimited stock, gated by
   a **reload cooldown** (6s at the start; shop upgrades buy it down to 1s);
   the pod comes back fully loaded each wave. The launcher fires
   itself at the **highest-value, most distant threat** — it never engages
@@ -134,7 +134,7 @@ Space to continue. Every ladder runs deep enough to soak late-game credits:
 
 | Item | Effect |
 |------|--------|
-| Interceptor Battery / Reload | Field the auto-launcher (cheap!), then shorten its cooldown, 6s → 1s (multi-level) |
+| Interceptor Battery / Reload | Field the auto-launcher, then shorten its cooldown, 6s → 1s (multi-level) |
 | Gun Shield / Shield Recharge | Fit a dome on the CIWS that absorbs one warhead, then buy down its recharge (multi-level) |
 | Laser Turret / Laser Recharge | Buy the autonomous beam, then speed its recharge (multi-level) |
 | Upgrade Fire Rate | Faster CIWS cycle rate (7 levels — each compounds on the last) |

@@ -407,7 +407,7 @@ describe('Shop', () => {
     expect(g.credits).toBe(0);
   });
 
-  it('sells the battery cheap, then reload upgrades', () => {
+  it('sells the battery, then reload upgrades', () => {
     const g = newGame();
     g.startGame();
     g.credits = 50;

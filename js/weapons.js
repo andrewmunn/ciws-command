@@ -57,7 +57,7 @@ export class CIWSWeapon {
 }
 
 /**
- * Interceptor launcher — a cheap shop purchase that then fires itself:
+ * Interceptor launcher — a shop purchase that then fires itself:
  * unlimited stock, gated by a reload cooldown that shop upgrades buy down
  * (6s -> 1s). Does nothing until bought.
  */

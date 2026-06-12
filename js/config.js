@@ -295,7 +295,7 @@ export const CONFIG = {
   // the shot is a flat, close-in snap. Bought in the armory; one package in
   // the rack at a time, and an unused package carries over to the next wave.
   airstrike: {
-    cost: 60, // armory price for one strike package
+    cost: 30, // armory price for one strike package
     jetSpeed: 560, // px/s across the sky (fast — a proper combat dash)
     fireRange: 480, // the rail comes into parameters this far (x) from the target
     jetSpacing: 150, // px of trail between successive jets sharing an entry side
@@ -336,7 +336,7 @@ export const CONFIG = {
 
   // --- Laser (purchasable autonomous point-defense beam) ------------------
   laser: {
-    cost: 85, // one-time purchase
+    cost: 30, // one-time purchase
     upgradeCosts: [50, 80, 115, 170, 240], // recharge upgrades after it's owned
     cooldowns: [5, 4, 3, 2.2, 1.5, 1], // recharge between burns, by upgrade level
     dps: 2.6, // HP/s burned at point-blank; falls off with distance
@@ -407,7 +407,7 @@ export const CONFIG = {
   shop: {
     // Interceptor stock is unlimited; you buy down the reload cooldown.
     // Length = max upgrade levels (matches interceptor.cooldowns - 1).
-    interceptorCost: 12, // buy the battery itself — cheap, the natural first purchase
+    interceptorCost: 30, // buy the battery itself (priced level with laser/strike)
     interceptorCooldownCosts: [30, 55, 85, 130, 190, 260, 350],
     // One extra top level stands in for the removed twin-barrel upgrade.
     fireRateCosts: [30, 50, 75, 110, 160, 220, 300],
