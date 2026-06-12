@@ -8,6 +8,7 @@ import {
   dist2,
   deg2rad,
   pick,
+  shuffle,
   removeWhere,
   TAU,
 } from '../js/utils.js';
@@ -75,6 +76,20 @@ describe('pick', () => {
   it('returns an element of the array', () => {
     const arr = ['a', 'b', 'c'];
     for (let i = 0; i < 50; i++) expect(arr).toContain(pick(arr));
+  });
+});
+
+describe('shuffle', () => {
+  it('returns a new array with the same elements, leaving the input untouched', () => {
+    const arr = [1, 2, 3, 4, 5];
+    const out = shuffle(arr);
+    expect(out).not.toBe(arr);
+    expect(arr).toEqual([1, 2, 3, 4, 5]); // original unchanged
+    expect([...out].sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5]);
+  });
+  it('handles empty and single-element arrays', () => {
+    expect(shuffle([])).toEqual([]);
+    expect(shuffle([7])).toEqual([7]);
   });
 });
 

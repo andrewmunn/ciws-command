@@ -5,7 +5,7 @@
 // ---------------------------------------------------------------------------
 
 import { CONFIG } from './config.js';
-import { clamp, rand, randInt, dist2, removeWhere, pick, TAU } from './utils.js';
+import { clamp, rand, randInt, dist2, removeWhere, pick, shuffle, TAU } from './utils.js';
 import {
   City,
   Turret,
@@ -73,6 +73,7 @@ export class Game {
     this.waveLeaks = 0; // missiles that reached the ground this wave
     this.waveBreakdown = null; // credit sources for the shop summary
     this._shopRects = []; // hit-test rects, rebuilt each shop frame
+    this.shopDropped = []; // offer keys omitted from this visit's armory (rerolled each wave)
 
     this.state = 'menu'; // menu | playing | intermission | gameover
     this.scoreboard = scoreboard; // injectable for tests
@@ -282,6 +283,10 @@ export class Game {
     this.nextWave = s.wave;
     this.waveEarned = s.waveEarned ?? 0;
     this.waveBreakdown = s.waveBreakdown ?? null;
+    // Honour the saved reroll so a reload shows the same stock; older saves
+    // without it just roll a fresh offer.
+    if (Array.isArray(s.shopDropped)) this.shopDropped = s.shopDropped;
+    else this.rollShopOffer();
     this.state = 'intermission';
   }
 
@@ -304,6 +309,7 @@ export class Game {
     this.laserBeams = [];
     this.laserBeamLive = null;
     this.shieldLevel = 0;
+    this.shopDropped = [];
     this.pendingNukes = [];
     this.mushrooms = [];
     this.paused = false; // restarting (R) always unpauses
@@ -367,6 +373,7 @@ export class Game {
       credits: this.credits,
       waveEarned: this.waveEarned,
       waveBreakdown: this.waveBreakdown,
+      shopDropped: this.shopDropped,
       shieldLevel: this.shieldLevel,
       ciws: { fireRateLevel: this.ciws.fireRateLevel, twin: this.ciws.twin },
       interceptor: {
@@ -461,6 +468,7 @@ export class Game {
     this.nextWave = this.wave + 1;
     this.state = 'intermission';
     this.shopSelected = 0; // touch armory: detail panel opens on the top item
+    this.rollShopOffer(); // pick this visit's withheld offers before checkpointing
     this.laserBeamLive = null;
     this.laser.target = null;
     // A cleared wave is a checkpoint — closing the tab at the armory (or any
@@ -2124,6 +2132,20 @@ export class Game {
   // -------------------------------------------------------------------------
   // Shop (between-wave armory)
   // -------------------------------------------------------------------------
+  /** The fixed roster of shop offer slots — one per upgrade line. */
+  static SHOP_KEYS = ['interceptor', 'shield', 'laser', 'fireRate', 'twin'];
+
+  /**
+   * Roll which offers this armory visit withholds. Dropping a couple at random
+   * each wave means no two runs hand you the same shop, so build order varies.
+   * Rerolled once per wave clear and saved with the checkpoint, so revisiting
+   * the armory (reload, re-enter) shows the same stock rather than re-rolling.
+   */
+  rollShopOffer() {
+    const n = clamp(CONFIG.shop.dropPerWave ?? 0, 0, Game.SHOP_KEYS.length - 1);
+    this.shopDropped = shuffle(Game.SHOP_KEYS).slice(0, n);
+  }
+
   /** Build the current shop offer list (availability/cost reflect game state). */
   getShopItems() {
     const S = CONFIG.shop;
@@ -2134,6 +2156,7 @@ export class Game {
 
     if (!iw.owned) {
       items.push({
+        key: 'interceptor',
         label: X.interceptor.label,
         desc: X.interceptor.desc,
         cost: S.interceptorCost,
@@ -2147,6 +2170,7 @@ export class Game {
       const ilMax = il >= S.interceptorCooldownCosts.length;
       const cds = CONFIG.interceptor.cooldowns;
       items.push({
+        key: 'interceptor',
         label: ilMax ? X.interceptorReload.labelMax : X.interceptorReload.label(il + 1),
         desc: X.interceptorReload.desc(iw.cooldown),
         cost: ilMax ? null : S.interceptorCooldownCosts[il],
@@ -2161,6 +2185,7 @@ export class Game {
     const slMax = sl >= CONFIG.shield.costs.length;
     const rts = CONFIG.shield.rechargeTimes;
     items.push({
+      key: 'shield',
       label:
         sl === 0
           ? X.shield.label
@@ -2178,6 +2203,7 @@ export class Game {
     const L = CONFIG.laser;
     if (!this.laser.owned) {
       items.push({
+        key: 'laser',
         label: X.laser.label,
         desc: X.laser.desc,
         cost: L.cost,
@@ -2190,6 +2216,7 @@ export class Game {
       const ll = this.laser.level;
       const llMax = ll >= L.upgradeCosts.length;
       items.push({
+        key: 'laser',
         label: llMax ? X.laserRecharge.labelMax : X.laserRecharge.label(ll + 1),
         desc: X.laserRecharge.desc(this.laser.rechargeTime),
         cost: llMax ? null : L.upgradeCosts[ll],
@@ -2203,6 +2230,7 @@ export class Game {
     const fl = this.ciws.fireRateLevel;
     const frMax = fl >= S.fireRateCosts.length;
     items.push({
+      key: 'fireRate',
       label: frMax ? X.fireRate.labelMax : X.fireRate.label(fl + 1),
       desc: X.fireRate.desc,
       cost: frMax ? null : S.fireRateCosts[fl],
@@ -2214,6 +2242,7 @@ export class Game {
 
     const hasTwin = this.ciws.twin;
     items.push({
+      key: 'twin',
       label: X.twin.label,
       desc: hasTwin ? X.twin.descOwned : X.twin.desc,
       cost: hasTwin ? null : S.twinBarrelCost,
@@ -2223,7 +2252,8 @@ export class Game {
       info: X.twin.info,
     });
 
-    return items;
+    // This wave's reroll withholds a couple of offers for run-to-run variety.
+    return items.filter((it) => !this.shopDropped.includes(it.key));
   }
 
   /** Deterministic layout for the shop rows + the proceed button. */

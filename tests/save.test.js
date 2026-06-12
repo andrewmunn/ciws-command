@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'bun:test';
 import { SaveSlot, SAVE_VERSION } from '../js/save.js';
 import { CONFIG } from '../js/config.js';
-import { newGame } from './helpers.js';
+import { newGame, withRandom } from './helpers.js';
 
 /** Minimal in-memory localStorage stand-in. */
 function fakeStorage() {
@@ -143,6 +143,29 @@ describe('Game checkpointing', () => {
     reborn.proceedToNextWave();
     clearWave(reborn);
     expect(reborn.saveSlot.load().interceptor.owned).toBe(true);
+  });
+
+  it('saves the armory reroll, so a reload shows the same withheld stock', () => {
+    const orig = CONFIG.shop.dropPerWave;
+    CONFIG.shop.dropPerWave = 2;
+    try {
+      const storage = fakeStorage();
+      const game = newSavingGame(storage);
+      game.startGame();
+      withRandom(0.3, () => clearWave(game)); // rolls the drop, then checkpoints it
+      expect(game.shopDropped).toHaveLength(2);
+
+      // Reloading must replay the saved offer rather than re-rolling a new one,
+      // so a player can't reroll the shop by closing and reopening the tab.
+      const reborn = newSavingGame(storage);
+      reborn.continueGame();
+      expect(reborn.shopDropped).toEqual(game.shopDropped);
+      expect(reborn.getShopItems().map((i) => i.key)).toEqual(
+        game.getShopItems().map((i) => i.key)
+      );
+    } finally {
+      CONFIG.shop.dropPerWave = orig;
+    }
   });
 
   it('round-trips every upgrade ladder, not just ownership flags', () => {

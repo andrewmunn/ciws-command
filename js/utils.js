@@ -27,6 +27,16 @@ export const deg2rad = (d) => (d * Math.PI) / 180;
 /** Pick a random element of an array. */
 export const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
+/** Fisher-Yates shuffle, returning a new array (the input is left untouched). */
+export const shuffle = (arr) => {
+  const out = arr.slice();
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+};
+
 /**
  * Remove array elements for which `pred` returns true, in place.
  * Used every frame to cull dead entities without allocating new arrays.

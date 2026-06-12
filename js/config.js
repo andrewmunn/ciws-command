@@ -336,6 +336,7 @@ export const CONFIG = {
     fireRateCosts: [30, 50, 75, 110, 160, 220],
     fireRateFactor: 0.82, // fire interval multiplier per level
     twinBarrelCost: 100, // one-time: a second barrel firing side by side
+    dropPerWave: 2, // omit this many random offers each visit, for run-to-run variety
   },
 
   // --- 3D render / bloom --------------------------------------------------

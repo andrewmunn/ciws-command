@@ -471,6 +471,69 @@ describe('Shop', () => {
   });
 });
 
+describe('Shop offer variety (random drops)', () => {
+  const KEYS = ['interceptor', 'shield', 'laser', 'fireRate', 'twin'];
+
+  // Opt back into the drop that setup.js disables for the deterministic tests.
+  const withDrop = (n, fn) => {
+    const orig = CONFIG.shop.dropPerWave;
+    CONFIG.shop.dropPerWave = n;
+    try {
+      return fn();
+    } finally {
+      CONFIG.shop.dropPerWave = orig;
+    }
+  };
+
+  it('withholds dropPerWave distinct offers, and the shop hides them', () => {
+    const g = newGame();
+    g.startGame();
+    withDrop(2, () => {
+      withRandom(0.5, () => g.rollShopOffer());
+      expect(g.shopDropped).toHaveLength(2);
+      expect(new Set(g.shopDropped).size).toBe(2); // distinct slots
+      for (const k of g.shopDropped) expect(KEYS).toContain(k);
+
+      const shown = g.getShopItems().map((i) => i.key);
+      expect(shown).toHaveLength(KEYS.length - 2);
+      for (const dropped of g.shopDropped) expect(shown).not.toContain(dropped);
+    });
+  });
+
+  it('never drops more than the roster minus one, even if misconfigured', () => {
+    const g = newGame();
+    g.startGame();
+    withDrop(99, () => {
+      g.rollShopOffer();
+      expect(g.shopDropped).toHaveLength(KEYS.length - 1);
+      expect(g.getShopItems()).toHaveLength(1); // always at least one thing to buy
+    });
+  });
+
+  it('a fresh run and disabled drop offer the full roster', () => {
+    const g = newGame();
+    g.startGame(); // dropPerWave is 0 under test
+    g.rollShopOffer();
+    expect(g.shopDropped).toHaveLength(0);
+    expect(g.getShopItems()).toHaveLength(KEYS.length);
+  });
+
+  it('clearing a wave rerolls the withheld offers', () => {
+    const g = newGame();
+    g.startGame();
+    withDrop(2, () => {
+      // Two different RNG draws must be able to withhold different slots.
+      withRandom(0.1, () => g.endWave());
+      const first = g.shopDropped.slice().sort();
+      withRandom(0.9, () => g.endWave());
+      const second = g.shopDropped.slice().sort();
+      expect(first).toHaveLength(2);
+      expect(second).toHaveLength(2);
+      expect(first).not.toEqual(second);
+    });
+  });
+});
+
 describe('update() guards', () => {
   it('is a no-op while paused', () => {
     const g = newGame();
