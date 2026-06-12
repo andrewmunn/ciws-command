@@ -402,7 +402,87 @@ export class Renderer {
     this.interceptorTrailSys = this._makeLines(
       R.maxInterceptors * CONFIG.interceptor.trailMaxPoints
     );
+    this._buildAAMMeshes();
+    this.aamTrailSys = this._makeLines(
+      R.maxAAMs * CONFIG.airstrike.missile.trailMaxPoints
+    );
+    this._buildJetMeshes();
     this._buildShieldMeshes();
+  }
+
+  _buildAAMMeshes() {
+    // Air-to-air missiles: the interceptor's little sibling — a slim mint
+    // dart, nose along velocity.
+    this._aamGeo = new THREE.ConeGeometry(2.2, 10, 8);
+    this.aamMeshes = [];
+    for (let i = 0; i < R.maxAAMs; i++) {
+      const mat = new THREE.MeshStandardMaterial({
+        color: COL.aam,
+        emissive: COL.aam,
+        emissiveIntensity: 1.4,
+        roughness: 0.35,
+        metalness: 0.4,
+      });
+      const mesh = new THREE.Mesh(this._aamGeo, mat);
+      mesh.visible = false;
+      mesh.frustumCulled = false;
+      this.scene.add(mesh);
+      this.aamMeshes.push(mesh);
+    }
+  }
+
+  /**
+   * Friendly F-16s (nose along +X): slim fuselage, nose cone, bubble canopy,
+   * swept mid-set wings and stabs — and the type's signature, a SINGLE tall
+   * raked tail fin (the enemy strike fighter wears two).
+   */
+  _buildJetMeshes() {
+    this.jetMeshes = [];
+    for (let i = 0; i < R.maxJets; i++) {
+      const mat = new THREE.MeshStandardMaterial({
+        color: COL.jet,
+        emissive: COL.jet,
+        emissiveIntensity: 0.55,
+        roughness: 0.45,
+        metalness: 0.5,
+      });
+      const g = new THREE.Group();
+      const fuselage = new THREE.Mesh(new THREE.BoxGeometry(22, 3, 3.4), mat);
+      g.add(fuselage);
+      const noseGeo = new THREE.ConeGeometry(1.4, 6.5, 8);
+      noseGeo.rotateZ(-Math.PI / 2);
+      const nose = new THREE.Mesh(noseGeo, mat);
+      nose.position.x = 14;
+      g.add(nose);
+      const canopy = new THREE.Mesh(new THREE.BoxGeometry(4.5, 1.7, 2.2), mat);
+      canopy.position.set(6.5, 2, 0);
+      g.add(canopy);
+      for (const side of [-1, 1]) {
+        const wing = new THREE.Mesh(new THREE.BoxGeometry(7.5, 0.55, 9.5), mat);
+        wing.position.set(-1.5, -0.4, side * 5.4);
+        wing.rotation.y = side * 0.5; // cropped-delta sweep
+        g.add(wing);
+        const stab = new THREE.Mesh(new THREE.BoxGeometry(4, 0.5, 5), mat);
+        stab.position.set(-10, -0.2, side * 3.2);
+        stab.rotation.y = side * 0.45;
+        g.add(stab);
+      }
+      const fin = new THREE.Mesh(new THREE.BoxGeometry(5, 6.5, 0.6), mat);
+      fin.position.set(-8.5, 3.4, 0);
+      fin.rotation.z = 0.42; // raked back
+      g.add(fin);
+      // Engine nozzle the afterburner glow hangs off.
+      const nozzleGeo = new THREE.CylinderGeometry(1.5, 1.2, 3, 8);
+      nozzleGeo.rotateZ(-Math.PI / 2);
+      const nozzle = new THREE.Mesh(nozzleGeo, mat);
+      nozzle.position.x = -12;
+      g.add(nozzle);
+      g.visible = false;
+      g.userData.mat = mat;
+      g.traverse((o) => (o.frustumCulled = false));
+      this.scene.add(g);
+      this.jetMeshes.push(g);
+    }
   }
 
   /** Soft vertical streaks; scrolled around the dome to read as an energy shimmer. */
@@ -910,10 +990,6 @@ export class Renderer {
     };
     const cluster = makeCluster();
     pivot.add(cluster);
-    // Second cluster for the twin upgrade (hidden until owned).
-    const cluster2 = makeCluster();
-    cluster2.visible = false;
-    pivot.add(cluster2);
 
     const flashMat = new THREE.MeshBasicMaterial({
       color: COL.bullet,
@@ -1002,7 +1078,6 @@ export class Renderer {
       clusterMat,
       pivot,
       cluster,
-      cluster2,
       flash,
       flashMat,
       laserGroup,
@@ -1079,17 +1154,8 @@ export class Renderer {
         ud.spinVel += (targetVel - ud.spinVel) * Math.min(1, dt * 6);
         ud.spin += ud.spinVel * dt;
 
-        // Twin mounts: split apart perpendicular to the aim once owned.
-        const twin = game.ciws && game.ciws.twin;
-        const gap = CONFIG.turret.twinSpacing;
-        for (const [cl, off] of [
-          [ud.cluster, twin ? -gap / 2 : 0],
-          [ud.cluster2, gap / 2],
-        ]) {
-          cl.position.set(-turret.recoil, off, 0); // recoil kicks the gun back
-          cl.rotation.x = ud.spin;
-        }
-        ud.cluster2.visible = twin;
+        ud.cluster.position.set(-turret.recoil, 0, 0); // recoil kicks the gun back
+        ud.cluster.rotation.x = ud.spin;
 
         ud.flash.visible = turret.muzzleFlash > 0;
         if (turret.muzzleFlash > 0) {
@@ -1222,8 +1288,14 @@ export class Renderer {
         sy = 0.85; // stubby finned bomb
       } else if (m.type === 'nuke') {
         colStr = COL.missileNuke;
-        sx = sz = CONFIG.missile.nuke.scale;
-        sy = CONFIG.missile.nuke.scale * 1.15; // a huge, unmistakable bus
+        // A warhead released by a MIRV nuke is the same shape, much smaller.
+        const s = m.subnuke ? CONFIG.missile.mirvNuke.childScale : CONFIG.missile.nuke.scale;
+        sx = sz = s;
+        sy = s * 1.15; // a huge, unmistakable bus
+      } else if (m.type === 'mirvnuke') {
+        colStr = COL.missileMirvNuke;
+        sx = sz = CONFIG.missile.mirvNuke.scale;
+        sy = CONFIG.missile.mirvNuke.scale * 1.2; // long, fast and wrong-coloured
       }
       const c = this.baseColor(colStr);
 
@@ -1266,14 +1338,14 @@ export class Renderer {
         // Flickering reentry-plasma glow at the head; hypersonics burn hotter,
         // nukes throb with a slow, ominous pulse. Side-entrants get just a
         // small engine light.
-        const flick =
-          m.type === 'nuke'
-            ? 0.75 + 0.25 * Math.sin(game.time * 4 + m.id)
-            : 0.8 + 0.2 * Math.sin(game.time * 31 + m.id * 5.1);
+        const nukeLike = m.type === 'nuke' || m.type === 'mirvnuke';
+        const flick = nukeLike
+          ? 0.75 + 0.25 * Math.sin(game.time * 4 + m.id)
+          : 0.8 + 0.2 * Math.sin(game.time * 31 + m.id * 5.1);
         const glowBase =
           m.type === 'hypersonic'
             ? 30
-            : m.type === 'nuke'
+            : nukeLike
             ? 26
             : m.type === 'bomber'
             ? 16 // twin afterburners on a big airframe
@@ -1414,6 +1486,94 @@ export class Renderer {
       this.interceptorMeshes[k].visible = false;
     }
     trails.setCount(seg);
+  }
+
+  /** AAMs: the interceptor treatment at two-thirds scale in mint. */
+  _updateAAMs(game) {
+    const trails = this.aamTrailSys;
+    const c = this.baseColor(COL.aam);
+    let i = 0;
+    let seg = 0;
+    for (const it of game.aamList || []) {
+      if (i < this.aamMeshes.length) {
+        const mesh = this.aamMeshes[i];
+        mesh.visible = true;
+        mesh.position.set(this.wx(it.x), this.wy(it.y), 0);
+        mesh.rotation.z = Math.atan2(-it.vy, it.vx) - Math.PI / 2;
+        mesh.material.emissiveIntensity = it.boosting ? 2.4 : 1.0;
+        const flick = 0.75 + 0.25 * Math.sin(game.time * 51 + i * 4.3);
+        if (it.boosting) {
+          // The interceptor's two-stage solid-motor burn at ~60% scale: a
+          // white-hot point at the nozzle, an orange tongue behind it.
+          const sp = Math.hypot(it.vx, it.vy) || 1;
+          const ux = it.vx / sp;
+          const uy = it.vy / sp;
+          const hot = this.baseColor('#fff6e0');
+          const flame = this.baseColor('#ffae5c');
+          this._pushGlow(
+            this.wx(it.x - ux * 6),
+            this.wy(it.y - uy * 6),
+            hot,
+            10 * flick,
+            0.9 * flick
+          );
+          this._pushGlow(
+            this.wx(it.x - ux * 12),
+            this.wy(it.y - uy * 12),
+            flame,
+            18 * flick,
+            0.6 * flick
+          );
+        } else {
+          this._pushGlow(this.wx(it.x), this.wy(it.y), c, 9 * flick, 0.3 * flick);
+        }
+        i++;
+      }
+      const pts = it.trail;
+      const n = pts.length;
+      for (let k = 0; k < n && seg < trails.maxSeg; k++) {
+        const a = pts[k];
+        const b = k + 1 < n ? pts[k + 1] : it;
+        const fa = 0.12 + 0.88 * (k / n);
+        const fb = 0.12 + 0.88 * ((k + 1) / n);
+        const v = seg * 6;
+        trails.pos[v] = this.wx(a.x);
+        trails.pos[v + 1] = this.wy(a.y);
+        trails.pos[v + 2] = 0;
+        trails.pos[v + 3] = this.wx(b.x);
+        trails.pos[v + 4] = this.wy(b.y);
+        trails.pos[v + 5] = 0;
+        trails.col[v] = c.r * fa;
+        trails.col[v + 1] = c.g * fa;
+        trails.col[v + 2] = c.b * fa;
+        trails.col[v + 3] = c.r * fb;
+        trails.col[v + 4] = c.g * fb;
+        trails.col[v + 5] = c.b * fb;
+        seg++;
+      }
+    }
+    for (let k = i; k < this.aamMeshes.length; k++) {
+      this.aamMeshes[k].visible = false;
+    }
+    trails.setCount(seg);
+  }
+
+  /** Friendly F-16s: a clean, fast pass — no plume; the missiles carry the fire. */
+  _updateJets(game) {
+    let i = 0;
+    for (const j of game.jets || []) {
+      if (i >= this.jetMeshes.length) break;
+      const mesh = this.jetMeshes[i];
+      mesh.visible = true;
+      mesh.position.set(this.wx(j.x), this.wy(j.y), 0);
+      // Nose along the velocity (the airframe pitches onto its target line);
+      // left-flying airframes mirror vertically so the canopy and fin stay
+      // skyward (same trick as the enemy side-entrants).
+      mesh.rotation.z = Math.atan2(-j.vy, j.vx);
+      mesh.scale.set(1, j.dir > 0 ? 1 : -1, 1);
+      i++;
+    }
+    for (; i < this.jetMeshes.length; i++) this.jetMeshes[i].visible = false;
   }
 
   /**
@@ -1589,6 +1749,8 @@ export class Renderer {
     this._updateParticles(game);
     this._updateMissiles(game);
     this._updateInterceptors(game);
+    this._updateAAMs(game);
+    this._updateJets(game);
     this._updateBullets(game);
     this._updateLaserBeams(game);
     this._updateExplosions(game);

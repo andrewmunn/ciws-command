@@ -88,7 +88,7 @@ describe('Game checkpointing', () => {
     game.score = 500;
     game.credits = 7;
     game.laser.buy();
-    game.ciws.upgradeTwin();
+    game.airstrike.buy();
     game.cities[1].alive = false;
     game.cities[1].destroyedWave = 1;
     clearWave(game); // the save lands here — before NEXT WAVE is ever clicked
@@ -106,7 +106,7 @@ describe('Game checkpointing', () => {
     expect(reborn.score).toBe(game.score);
     expect(reborn.credits).toBe(game.credits);
     expect(reborn.laser.owned).toBe(true);
-    expect(reborn.ciws.twin).toBe(true);
+    expect(reborn.airstrike.ready).toBe(true); // an unused package survives
     expect(reborn.cities[1].alive).toBe(false);
     expect(reborn.cities[1].destroyedWave).toBe(1);
     expect(reborn.cities[0].alive).toBe(true);
@@ -151,7 +151,7 @@ describe('Game checkpointing', () => {
     game.startGame();
     game.ciws.upgradeFireRate();
     game.ciws.upgradeFireRate();
-    game.ciws.upgradeTwin();
+    game.airstrike.buy();
     game.interceptorWeapon.buy();
     game.interceptorWeapon.upgradeCooldown();
     game.interceptorWeapon.upgradeCooldown();
@@ -165,7 +165,7 @@ describe('Game checkpointing', () => {
     const reborn = newSavingGame(storage);
     reborn.continueGame();
     expect(reborn.ciws.fireRateLevel).toBe(2);
-    expect(reborn.ciws.twin).toBe(true);
+    expect(reborn.airstrike.ready).toBe(true);
     expect(reborn.interceptorWeapon.owned).toBe(true);
     expect(reborn.interceptorWeapon.cooldownLevel).toBe(3);
     expect(reborn.laser.owned).toBe(true);
@@ -259,7 +259,8 @@ describe('Game checkpointing', () => {
     const snap = game.saveSlot.load();
     snap.laser = { owned: true, level: 99 };
     snap.interceptor = { owned: true, cooldownLevel: -5 };
-    snap.ciws = { fireRateLevel: 99, twin: 1 };
+    snap.ciws = { fireRateLevel: 99 };
+    snap.airstrike = { charges: 99 }; // doctored stock still racks just one
     snap.shieldLevel = 99;
     game.saveSlot.save(snap);
 
@@ -268,7 +269,7 @@ describe('Game checkpointing', () => {
     expect(reborn.laser.level).toBe(CONFIG.laser.cooldowns.length - 1);
     expect(reborn.interceptorWeapon.cooldownLevel).toBe(0);
     expect(reborn.ciws.fireRateLevel).toBe(CONFIG.shop.fireRateCosts.length);
-    expect(reborn.ciws.twin).toBe(true); // truthy junk coerces to a real bool
+    expect(reborn.airstrike.charges).toBe(1);
     expect(reborn.shieldLevel).toBe(CONFIG.shield.costs.length);
     expect(Number.isFinite(reborn.laser.rechargeTime)).toBe(true);
     expect(Number.isFinite(reborn.ciws.fireInterval)).toBe(true);

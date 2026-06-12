@@ -21,11 +21,6 @@ export class CIWSWeapon {
     this.baseDispersion = CONFIG.turret.dispersionDeg;
     this.ammoCapacity = CONFIG.turret.startAmmo; // Infinity — the belt never runs dry
     this.fireRateLevel = 0;
-    this.twin = false; // twin-barrel upgrade: fires two rounds side by side
-  }
-
-  get barrels() {
-    return this.twin ? 2 : 1;
   }
 
   get fireInterval() {
@@ -42,39 +37,22 @@ export class CIWSWeapon {
   }
 
   /**
-   * Fire a volley from a turret. Returns an array of Bullets (one per barrel, so
-   * two side-by-side rounds with the twin upgrade), or [] if it can't fire.
+   * Fire one round from a turret. Returns an array with the Bullet, or [] if
+   * it can't fire.
    */
   fireFrom(turret) {
     if (!turret.usable || turret.cooldown > 0) return [];
-    const count = Math.min(this.barrels, turret.ammo); // can't fire more than we have
     turret.cooldown = this.fireInterval;
-    turret.ammo -= count;
+    turret.ammo -= 1;
     turret.recoil = 6;
     turret.muzzleFlash = 1;
     const spread = deg2rad(this.dispersionDeg);
     const m = turret.muzzle();
-    // Offset each barrel perpendicular to the aim so the rounds run parallel a
-    // few px apart.
-    const px = -Math.sin(turret.angle);
-    const py = Math.cos(turret.angle);
-    const gap = CONFIG.turret.twinSpacing;
-    const shots = [];
-    for (let i = 0; i < count; i++) {
-      const off = count === 1 ? 0 : (i - (count - 1) / 2) * gap;
-      shots.push(
-        new Bullet(m.x + px * off, m.y + py * off, turret.angle + rand(-spread, spread))
-      );
-    }
-    return shots;
+    return [new Bullet(m.x, m.y, turret.angle + rand(-spread, spread))];
   }
 
   upgradeFireRate() {
     this.fireRateLevel++;
-  }
-
-  upgradeTwin() {
-    this.twin = true;
   }
 }
 
@@ -133,12 +111,40 @@ export class InterceptorWeapon {
 }
 
 /**
+ * Airstrike — the once-per-wave panic button. Buying it in the armory racks
+ * ONE strike package; calling it (SPACE / the touch STRIKE button) scrambles
+ * a flight of F-16s that ripple-fire AAMs at everything in the sky. At most
+ * one package is held at a time, and an unused package carries over to the
+ * next wave. The Game owns the jets and missiles; this just tracks the stock.
+ */
+export class AirstrikeWeapon {
+  constructor() {
+    this.name = 'Airstrike';
+    this.charges = 0; // 0 or 1: packages in the rack
+  }
+
+  get ready() {
+    return this.charges > 0;
+  }
+
+  buy() {
+    this.charges = 1;
+  }
+
+  /** Spend the package. Returns false if the rack is empty. */
+  call() {
+    if (this.charges <= 0) return false;
+    this.charges = 0;
+    return true;
+  }
+}
+
+/**
  * Laser — a purchasable, fully autonomous point-defense beam left of the
- * CIWS mount. It latches onto one eligible target and burns it down over
- * time (dps), so a drone dies in a blink while an armoured MIRV bus takes a
- * long, committed burn. It only tracks slow, predictable targets: drones and
- * normal-type missiles (including MIRV carriers) — never the fast movers.
- * After each kill it recharges; upgrades buy a faster recharge.
+ * CIWS mount. It latches onto one target and burns it down over time (dps),
+ * so a drone dies in a blink while an armoured bus takes a long, committed
+ * burn. It engages ANY visible threat in its envelope (cloaked stealth is
+ * immune); after each kill it recharges, and upgrades buy a faster recharge.
  */
 export class LaserWeapon {
   constructor() {
@@ -176,12 +182,9 @@ export class LaserWeapon {
     if (this.timer > 0) this.timer -= dt;
   }
 
-  /** Whether the laser will engage this missile. */
+  /** Whether the laser will engage this missile (anything still flying). */
   canTarget(m) {
-    return (
-      !m.dead &&
-      (m.type === 'drone' || m.type === 'normal' || m.type === 'glidebomb')
-    );
+    return !m.dead;
   }
 
   fire() {

@@ -118,7 +118,7 @@ describe('EnemyMissile', () => {
 
     const ev = new EnemyMissile(0, 0, 0, G, 150, 0, G, 'evasive');
     expect(ev.maxHp).toBe(CONFIG.missile.hp.evasive);
-    expect(ev.weaveComps.length).toBe(CONFIG.missile.evasive.weaveComponents);
+    expect(ev.jinking).toBe(true);
 
     const hyp = new EnemyMissile(0, 0, 0, G, 150, 0, G, 'hypersonic');
     expect(hyp.maxHp).toBe(CONFIG.missile.hp.hypersonic);
@@ -164,7 +164,7 @@ describe('EnemyMissile', () => {
     expect(m.childCount).toBe(3); // preserved for the spawner
   });
 
-  it('evasive weave stays within the configured amplitude but is non-zero', () => {
+  it('evasive jink stays inside its leash but is non-zero', () => {
     const m = new EnemyMissile(700, 0, 700, G, 150, 0, G, 'evasive');
     let maxOffset = 0;
     for (let i = 0; i < 240; i++) {
@@ -172,7 +172,24 @@ describe('EnemyMissile', () => {
       maxOffset = Math.max(maxOffset, Math.hypot(m.x - m.cx, m.y - m.cy));
     }
     expect(maxOffset).toBeGreaterThan(0);
-    expect(maxOffset).toBeLessThanOrEqual(CONFIG.missile.evasive.weaveAmp + 1e-6);
+    // The predictive flip commits at the leash; one integration step of
+    // overshoot (latVel * dt) is the worst case, so allow a small margin.
+    const ev = CONFIG.missile.evasive;
+    expect(maxOffset).toBeLessThanOrEqual(ev.jinkOffsetMax * 1.15);
+  });
+
+  it('evasive jink is real maneuvering: lateral acceleration is bounded', () => {
+    const ev = CONFIG.missile.evasive;
+    const m = new EnemyMissile(700, 0, 700, G, 150, 0, G, 'evasive');
+    const dt = 1 / 60;
+    let prevVel = m.jinkVel;
+    for (let i = 0; i < 240; i++) {
+      m.update(dt, G);
+      // The lateral velocity can only change as fast as the configured
+      // thruster authority allows — no teleporting offsets.
+      expect(Math.abs(m.jinkVel - prevVel)).toBeLessThanOrEqual(ev.jinkAccel * dt + 1e-9);
+      prevVel = m.jinkVel;
+    }
   });
 
   it('reports heading: equal to velocity for normal, deflected for evasive', () => {

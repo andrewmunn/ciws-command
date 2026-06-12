@@ -11,13 +11,15 @@ import {
   Turret,
   EnemyMissile,
   Flare,
+  FriendlyJet,
+  Interceptor,
   Particle,
   explode,
   explodeRing,
   explodeCone,
   smokePuff,
 } from './entities.js';
-import { CIWSWeapon, InterceptorWeapon, LaserWeapon } from './weapons.js';
+import { CIWSWeapon, InterceptorWeapon, LaserWeapon, AirstrikeWeapon } from './weapons.js';
 import { sfx } from './audio.js';
 import { scoreboard } from './scores.js';
 import { saveSlot, SAVE_VERSION } from './save.js';
@@ -30,15 +32,16 @@ const T = STRINGS; // every user-facing line lives in strings.js
 // spawner fires whenever the live count drops below `maxLive` and `gap`
 // seconds have passed (a drone swarm counts one per airframe).
 export const DEV_SCENARIOS = [
-  { key: 'bombers', type: 'bomber', maxLive: 2, gap: 4 },
-  { key: 'drones', type: 'drone', maxLive: 6, gap: 5 },
-  { key: 'cruise', type: 'cruise', maxLive: 3, gap: 2.5 },
-  { key: 'stealth', type: 'stealth', maxLive: 3, gap: 2.5 },
-  { key: 'hypersonics', type: 'hypersonic', maxLive: 3, gap: 2 },
-  { key: 'evasive', type: 'evasive', maxLive: 4, gap: 1.5 },
-  { key: 'mirvs', type: 'mirv', maxLive: 3, gap: 3 },
-  { key: 'nukes', type: 'nuke', maxLive: 1, gap: 5 },
-  { key: 'rain', type: 'normal', maxLive: 6, gap: 1 },
+  { key: 'bombers', type: 'bomber', maxLive: 2, gap: 2 },
+  { key: 'drones', type: 'drone', maxLive: 6, gap: 2.5 },
+  { key: 'cruise', type: 'cruise', maxLive: 3, gap: 1.25 },
+  { key: 'stealth', type: 'stealth', maxLive: 3, gap: 1.25 },
+  { key: 'hypersonics', type: 'hypersonic', maxLive: 3, gap: 1 },
+  { key: 'evasive', type: 'evasive', maxLive: 4, gap: 0.75 },
+  { key: 'mirvs', type: 'mirv', maxLive: 3, gap: 1.5 },
+  { key: 'nukes', type: 'nuke', maxLive: 1, gap: 2.5 },
+  { key: 'mirvnukes', type: 'mirvnuke', maxLive: 1, gap: 3 },
+  { key: 'rain', type: 'normal', maxLive: 6, gap: 0.5 },
 ];
 
 export class Game {
@@ -56,6 +59,8 @@ export class Game {
     this.particles = [];
     this.explosions = []; // transient fireball/shockwave visual events
     this.interceptorList = []; // in-flight interceptors
+    this.aamList = []; // in-flight air-to-air missiles (airstrike)
+    this.jets = []; // friendly F-16s on a strike pass
     this.flares = []; // burning decoys punched out by bombers under attack
     this.floatTexts = []; // floating "+credits" labels on kills
 
@@ -63,11 +68,14 @@ export class Game {
     this.ciws = new CIWSWeapon();
     this.interceptorWeapon = new InterceptorWeapon();
     this.laser = new LaserWeapon();
+    this.airstrike = new AirstrikeWeapon();
     this.laserBeams = []; // fading beam visuals {x1,y1,x2,y2,life,maxLife}
     this.laserBeamLive = null; // the sustained beam while a burn is in progress
     this.shieldLevel = 0; // gun-shield upgrades bought (0 = no shield)
     this.nukesSpawned = 0; // nukes rolled this wave (capped per wave)
-    this.pendingNukes = []; // countdowns between launch warning and spawn
+    this.mirvNukesSpawned = 0; // MIRV nukes rolled this wave (own cap)
+    this.pendingNukes = []; // {t, type} countdowns between warning and spawn
+    this.screenFlash = 0; // white-out seconds remaining after a nuclear blast
     this.credits = 0;
     this.waveEarned = 0; // credits earned during the current wave (shop display)
     this.waveLeaks = 0; // missiles that reached the ground this wave
@@ -120,7 +128,8 @@ export class Game {
     this.devScenario = null; // entry from DEV_SCENARIOS while sandboxing
     this.devSpawnTimer = 0;
     this.devInvincible = false; // cities + gun cannot be destroyed
-    this.devLoadout = true; // sandbox starts with interceptor + laser fitted
+    this.devLoadout = true; // sandbox starts with interceptor + laser + strike
+    this.devStrikeTimer = 0; // sandbox-only: re-arms the airstrike after use
 
     this.resize();
     // Default aim at the centre of the (now fixed) simulation space.
@@ -294,6 +303,8 @@ export class Game {
     this.particles = [];
     this.explosions = [];
     this.interceptorList = [];
+    this.aamList = [];
+    this.jets = [];
     this.flares = [];
     this.floatTexts = [];
     this.score = 0;
@@ -301,6 +312,7 @@ export class Game {
     this.ciws = new CIWSWeapon();
     this.interceptorWeapon = new InterceptorWeapon();
     this.laser = new LaserWeapon();
+    this.airstrike = new AirstrikeWeapon();
     this.laserBeams = [];
     this.laserBeamLive = null;
     this.shieldLevel = 0;
@@ -326,7 +338,7 @@ export class Game {
       s.ciws?.fireRateLevel,
       CONFIG.shop.fireRateCosts.length
     );
-    this.ciws.twin = !!s.ciws?.twin;
+    if (s.airstrike?.charges > 0) this.airstrike.buy();
     if (s.interceptor?.owned) this.interceptorWeapon.buy();
     this.interceptorWeapon.cooldownLevel = level(
       s.interceptor?.cooldownLevel,
@@ -368,7 +380,8 @@ export class Game {
       waveEarned: this.waveEarned,
       waveBreakdown: this.waveBreakdown,
       shieldLevel: this.shieldLevel,
-      ciws: { fireRateLevel: this.ciws.fireRateLevel, twin: this.ciws.twin },
+      ciws: { fireRateLevel: this.ciws.fireRateLevel },
+      airstrike: { charges: this.airstrike.charges },
       interceptor: {
         owned: this.interceptorWeapon.owned,
         cooldownLevel: this.interceptorWeapon.cooldownLevel,
@@ -403,6 +416,7 @@ export class Game {
     if (this.devLoadout) {
       this.interceptorWeapon.buy();
       this.laser.buy();
+      this.airstrike.buy(); // sandbox re-arms it automatically after each call
     }
   }
 
@@ -412,12 +426,15 @@ export class Game {
     // upgraded) capacity, and interceptors refill to their per-wave capacity.
     this.bullets = [];
     this.interceptorList = [];
+    this.aamList = [];
+    this.jets = [];
     this.laserBeams = [];
     this.laserBeamLive = null;
     this.laser.target = null;
     this.waveEarned = 0;
     this.waveLeaks = 0;
     this.nukesSpawned = 0;
+    this.mirvNukesSpawned = 0;
     this.pendingNukes = [];
     this.ciws.reloadAll(this.turrets);
     this.interceptorWeapon.refill();
@@ -458,6 +475,8 @@ export class Game {
     // Clear in-flight ordnance; the shop holds until the player proceeds.
     this.bullets = [];
     this.interceptorList = [];
+    this.aamList = [];
+    this.jets = [];
     this.nextWave = this.wave + 1;
     this.state = 'intermission';
     this.shopSelected = 0; // touch armory: detail panel opens on the top item
@@ -478,6 +497,7 @@ export class Game {
   /** Credit bounty for destroying a given missile, by its current variant. */
   missileBounty(m) {
     const b = CONFIG.economy.bounty;
+    if (m.subnuke) return b.subnuke; // small warhead off a MIRV nuke
     if (m.splitsRemaining > 0) return b.mirv; // unsplit MIRV carrier
     return b[m.type] || b.normal;
   }
@@ -588,8 +608,8 @@ export class Game {
       this.spawnBomber();
       return;
     }
-    if (type === 'nuke') {
-      this.spawnNuke();
+    if (type === 'nuke' || type === 'mirvnuke') {
+      this.spawnNuke(type);
       return;
     }
     this.spawnBallistic(type, children);
@@ -601,7 +621,7 @@ export class Game {
     if (type === 'bomber') this.spawnBomber();
     else if (type === 'drone') this.spawnDroneGroup();
     else if (type === 'cruise' || type === 'stealth') this.spawnCruise(type);
-    else if (type === 'nuke') this.spawnNuke();
+    else if (type === 'nuke' || type === 'mirvnuke') this.spawnNuke(type);
     else if (type === 'mirv') {
       this.spawnBallistic('normal', randInt(M.splitChildren[0], M.splitChildren[1]));
     } else this.spawnBallistic(type);
@@ -760,37 +780,55 @@ export class Game {
     }
     this.flares.push(...burst);
     sfx.flare(this.pan(bomber.x));
-    for (const it of this.interceptorList) {
+    for (const it of [...this.interceptorList, ...this.aamList]) {
       if (it.dead || it.target !== bomber) continue;
       if (Math.random() < F.decoyChance) it.target = pick(burst);
     }
   }
 
   /**
-   * Nuke: the launch is DETECTED a few seconds before the warhead appears —
-   * klaxon plus a synthetic "Nuclear launch detected" voice — then it spawns.
+   * Nuke (or MIRV-nuke): the launch is DETECTED a few seconds before the
+   * warhead appears — klaxon plus a synthetic voice line — then it spawns.
    */
-  spawnNuke() {
-    this.nukesSpawned++;
-    this.pendingNukes.push(CONFIG.missile.nuke.warningTime);
+  spawnNuke(type = 'nuke') {
+    if (type === 'mirvnuke') {
+      this.mirvNukesSpawned++;
+      this.pendingNukes.push({ t: CONFIG.missile.mirvNuke.warningTime, type });
+      sfx.say(T.voice.mirvNukeWarning);
+    } else {
+      this.nukesSpawned++;
+      this.pendingNukes.push({ t: CONFIG.missile.nuke.warningTime, type });
+      sfx.say(T.voice.nukeWarning);
+    }
     sfx.alarm(0);
-    sfx.say(T.voice.nukeWarning);
   }
 
   /**
    * The warned-of nuke actually enters: armoured, full ballistic speed, and
    * aimed at an INNER city — its blast levels the neighbours too, so an
    * outer-city shot would waste half its yield off the map. It only targets
-   * the outermost cities when nothing inner is left standing.
+   * the outermost cities when nothing inner is left standing. A MIRV nuke
+   * comes in much hotter and aims its BUS at any live city (its children fan
+   * out onto three different ones at the split anyway).
    */
-  launchNuke() {
+  launchNuke(type = 'nuke') {
     const alive = this.cities.filter((c) => c.alive);
+    const startX = rand(60, this.W - 60);
+    if (type === 'mirvnuke') {
+      const target = pick(alive.length ? alive : this.cities);
+      const speed = this.rollSpeed() * CONFIG.missile.mirvNuke.speedFactor;
+      this.missiles.push(
+        new EnemyMissile(
+          startX, -10, target.x, this.groundY, speed, 0, this.groundY, 'mirvnuke'
+        )
+      );
+      return;
+    }
     const outerA = this.cities[0];
     const outerB = this.cities[this.cities.length - 1];
     const inner = alive.filter((c) => c !== outerA && c !== outerB);
     const pool = inner.length ? inner : alive.length ? alive : this.cities;
     const target = pick(pool);
-    const startX = rand(60, this.W - 60);
     const speed = this.rollSpeed() * CONFIG.missile.nuke.speedFactor;
     this.missiles.push(
       new EnemyMissile(startX, -10, target.x, this.groundY, speed, 0, 0, 'nuke')
@@ -811,6 +849,21 @@ export class Game {
       M.nuke.maxPerWave +
       Math.max(0, Math.floor((this.wave - M.nuke.fromWave) / M.nuke.wavesPerExtra));
     const spawnedSoFar = this.waveSpawnTotal - this.toSpawn;
+    // MIRV nuke: the very-late-game capstone threat, rolled before everything
+    // else (same "mid-wave only" guards as the nuke, with its own cap).
+    const MN = M.mirvNuke;
+    const mirvNukeCap =
+      MN.maxPerWave +
+      Math.max(0, Math.floor((this.wave - MN.fromWave) / MN.wavesPerExtra));
+    if (
+      this.wave >= MN.fromWave &&
+      this.mirvNukesSpawned < mirvNukeCap &&
+      spawnedSoFar >= 2 &&
+      this.toSpawn >= 2 &&
+      Math.random() < MN.chance
+    ) {
+      return { type: 'mirvnuke', children: 0 };
+    }
     if (
       this.wave >= M.nuke.fromWave &&
       this.nukesSpawned < nukeCap &&
@@ -845,6 +898,10 @@ export class Game {
   }
 
   splitMissile(parent) {
+    if (parent.type === 'mirvnuke') {
+      this.splitMirvNuke(parent);
+      return;
+    }
     explode(this.particles, parent.x, parent.y, C.missile, 6);
     const targets = this.aliveStructures();
     if (targets.length === 0) return;
@@ -862,6 +919,39 @@ export class Game {
           'normal'
         )
       );
+    }
+  }
+
+  /**
+   * A MIRV nuke bus reaches its split altitude: the spent carrier blows apart
+   * and three small independent warheads fan out, each onto a DIFFERENT city
+   * (shuffled, repeating only when fewer than three cities still stand). The
+   * children fly as small air-bursting nukes — lightly armoured, and their
+   * burst levels just the city under it, not the neighbours.
+   */
+  splitMirvNuke(parent) {
+    const MN = CONFIG.missile.mirvNuke;
+    explode(this.particles, parent.x, parent.y, C.missileMirvNuke, 24);
+    this.boom(parent.x, parent.y, 'medium', C.missileMirvNuke);
+    sfx.mirvSeparation(this.pan(parent.x));
+    const alive = this.cities.filter((c) => c.alive);
+    const pool = alive.length ? alive : this.cities;
+    const shuffled = [...pool].sort(() => Math.random() - 0.5);
+    for (let i = 0; i < MN.children; i++) {
+      const target = shuffled[i % shuffled.length];
+      const child = new EnemyMissile(
+        parent.x,
+        parent.y,
+        target.x + rand(-CONFIG.missile.aimJitter, CONFIG.missile.aimJitter),
+        this.groundY,
+        parent.speed * MN.childSpeedFactor * rand(0.92, 1.08),
+        0,
+        0,
+        'nuke'
+      );
+      child.subnuke = true;
+      child.maxHp = child.hp = MN.childHp;
+      this.missiles.push(child);
     }
   }
 
@@ -930,6 +1020,7 @@ export class Game {
     for (const ft of this.floatTexts) ft.life -= dt;
     removeWhere(this.floatTexts, (ft) => ft.life <= 0);
     if (this.shakeTime > 0) this.shakeTime -= dt;
+    if (this.screenFlash > 0) this.screenFlash -= dt;
 
     // Active turret tracks the cursor in every state (looks alive on menus).
     const active = this.getActiveTurret();
@@ -944,11 +1035,11 @@ export class Game {
   }
 
   /**
-   * Autonomous laser: when charged, it latches onto the most urgent target it
-   * can track (drones and normal-type missiles — fast movers are beyond it)
-   * and burns it down over time, so bigger targets take a longer, committed
-   * burn. After the kill it recharges. The beam originates from the laser
-   * emplacement left of the gun mount.
+   * Autonomous laser: when charged, it latches onto the most urgent visible
+   * target in its envelope (cloaked stealth excluded) and burns it down over
+   * time, so bigger targets take a longer, committed burn. After the kill it
+   * recharges. The beam originates from the laser emplacement left of the
+   * gun mount.
    */
   updateLaser(dt) {
     const L = this.laser;
@@ -1101,10 +1192,11 @@ export class Game {
 
     // A detected nuclear launch arrives once its warning runs out.
     for (let i = this.pendingNukes.length - 1; i >= 0; i--) {
-      this.pendingNukes[i] -= dt;
-      if (this.pendingNukes[i] <= 0) {
+      const p = this.pendingNukes[i];
+      p.t -= dt;
+      if (p.t <= 0) {
         this.pendingNukes.splice(i, 1);
-        this.launchNuke();
+        this.launchNuke(p.type);
       }
     }
 
@@ -1112,6 +1204,12 @@ export class Game {
     // an endless drip of its one scenario type.
     if (this.devScenario) {
       const sc = this.devScenario;
+      // Sandbox: the strike package re-arms itself so it can be tested on a
+      // loop (a real run buys one per wave in the armory).
+      if (this.devLoadout && !this.airstrike.ready) {
+        this.devStrikeTimer -= dt;
+        if (this.devStrikeTimer <= 0) this.airstrike.buy();
+      }
       this.devSpawnTimer -= dt;
       const live =
         this.missiles.filter((m) => !m.dead).length + this.pendingNukes.length;
@@ -1159,10 +1257,11 @@ export class Game {
     const bc = CONFIG.missile.bomber;
     for (const m of this.missiles) {
       if (m.type !== 'bomber' || m.dead) continue;
-      // Nearest homing round bound for this airframe or one of its decoys.
+      // Nearest homing round bound for this airframe or one of its decoys —
+      // the pilot defends against AAMs exactly as he does interceptors.
       let nearest = null;
       let nearestD = Infinity;
-      for (const it of this.interceptorList) {
+      for (const it of [...this.interceptorList, ...this.aamList]) {
         if (it.dead) continue;
         if (it.target !== m && (!it.target || it.target.owner !== m)) continue;
         const d = Math.hypot(it.x - m.x, it.y - m.y);
@@ -1253,11 +1352,50 @@ export class Game {
       else if (r === 'fizzle') explode(this.particles, it.x, it.y, C.interceptorTrail, 6);
     }
 
+    // F-16s on a strike pass: dash across, fire as each racked target comes
+    // into range, exit. The airframes fly clean — the smoke and fire belong
+    // to the missiles they put in the air.
+    for (const j of this.jets) {
+      const target = j.update(dt);
+      if (target) this.fireAAM(j, target);
+    }
+
+    // Air-to-air missiles: same guidance loop as the interceptors, with the
+    // interceptor's white solid-motor plume at reduced scale. A round whose
+    // target died retasks onto something not already engaged (AAMs will
+    // happily swat drones) or self-destructs.
+    for (const it of this.aamList) {
+      if (!it.dead && it.target && it.target.dead) {
+        it.target = this.nearestAirTarget(it.x, it.y, true);
+        if (!it.target) {
+          it.dead = true;
+          this.detonateInterceptor(it);
+          continue;
+        }
+      }
+      if (it.boosting && Math.random() < dt * 35) {
+        const sp = Math.hypot(it.vx, it.vy) || 1;
+        const s = new Particle(
+          it.x - (it.vx / sp) * 8,
+          it.y - (it.vy / sp) * 8,
+          C.rocketSmoke,
+          'smoke'
+        );
+        s.size *= 0.6;
+        this.particles.push(s);
+      }
+      const r = it.update(dt, this.groundY);
+      if (r === 'detonate') this.detonateInterceptor(it);
+      else if (r === 'fizzle') explode(this.particles, it.x, it.y, C.aam, 5);
+    }
+
     this.checkCollisions();
 
     removeWhere(this.missiles, (m) => m.dead);
     removeWhere(this.bullets, (b) => b.dead);
     removeWhere(this.interceptorList, (it) => it.dead);
+    removeWhere(this.aamList, (it) => it.dead);
+    removeWhere(this.jets, (j) => j.dead);
 
     const aliveCities = this.cities.filter((c) => c.alive).length;
     const aliveTurrets = this.turrets.filter((t) => t.alive).length;
@@ -1343,11 +1481,16 @@ export class Game {
       // A big airframe coming apart: heavy burning debris carries forward.
       explodeCone(this.particles, m.x, m.y, m.hx, m.hy, C.missileBomber, 30);
       this.boom(m.x, m.y, 'large', C.missileBomber);
-      sfx.kill('mirv', pan); // heavy double thump suits a dying airframe
+      sfx.kill('bomber', pan);
     } else if (m.type === 'nuke') {
       // Killed before detonation: the carcass blows big, but no chain reaction.
-      explode(this.particles, m.x, m.y, C.missileNuke, 32);
+      explode(this.particles, m.x, m.y, C.missileNuke, m.subnuke ? 20 : 32);
       this.boom(m.x, m.y, 'large', C.missileNuke);
+      sfx.kill('nuke', pan);
+    } else if (m.type === 'mirvnuke') {
+      // The bus dies with all three warheads still aboard — a huge, clean win.
+      explode(this.particles, m.x, m.y, C.missileMirvNuke, 36);
+      this.boom(m.x, m.y, 'large', C.missileMirvNuke);
       sfx.kill('nuke', pan);
     } else {
       explode(this.particles, m.x, m.y, C.explosion, 14);
@@ -1389,7 +1532,12 @@ export class Game {
     // immediate neighbours — including the CIWS if it's next door. Two slots
     // away is outside the lethal radius.
     if (missile.type === 'nuke') {
-      const r = CONFIG.missile.nuke.blastRadius;
+      // A small warhead off a MIRV nuke has a fraction of the yield: it
+      // levels only the city under the burst, not the neighbours.
+      const sub = missile.subnuke;
+      const r = sub
+        ? CONFIG.missile.mirvNuke.childBlastRadius
+        : CONFIG.missile.nuke.blastRadius;
       for (const s of [...this.cities, ...this.turrets]) {
         if (this.devInvincible) break; // dev god mode: the blast is all show
         if (s.alive && Math.abs(s.x - missile.x) <= r + this.structureHalfWidth(s)) {
@@ -1400,11 +1548,12 @@ export class Game {
           s.shieldFlash = 0;
         }
       }
-      explode(this.particles, missile.x, missile.y, C.groundExplosion, 70);
-      this.boom(missile.x, missile.y, 'nuke', '#ffe6a8');
+      explode(this.particles, missile.x, missile.y, C.groundExplosion, sub ? 40 : 70);
+      this.boom(missile.x, missile.y, 'nuke', '#ffe6a8', sub ? 135 : undefined);
       this.mushrooms.push({ x: missile.x, y: missile.y, groundY: this.groundY, age: 0 });
-      this.shakeTime = 1.0;
-      this.shakeMag = 22;
+      this.shakeTime = sub ? 0.6 : 1.0;
+      this.shakeMag = sub ? 14 : 22;
+      this.screenFlash = sub ? 0.3 : 0.5; // the white-out of a nuclear flash
       sfx.nukeBlast(this.pan(missile.x));
       return;
     }
@@ -1525,23 +1674,28 @@ export class Game {
     return best;
   }
 
-  /** Area warhead burst: instakills every missile within the blast radius. */
+  /**
+   * Area warhead burst (interceptor or AAM — each carries its own config):
+   * flat damage to every missile within the blast radius.
+   */
   detonateInterceptor(it) {
-    explode(this.particles, it.x, it.y, C.interceptorBlast, 22);
+    const cfg = it.cfg || CONFIG.interceptor;
+    const aam = it.kind === 'aam';
+    const color = aam ? C.aam : C.interceptorBlast;
+    explode(this.particles, it.x, it.y, color, aam ? 14 : 22);
     // The wave is drawn at the true blast radius, so what you see is exactly
     // what the warhead can kill.
-    this.boom(it.x, it.y, 'medium', C.interceptorBlast, CONFIG.interceptor.blastRadius);
-    this.shakeTime = Math.max(this.shakeTime, 0.18);
-    this.shakeMag = 5;
-    sfx.interceptorBoom(this.pan(it.x));
-    const r = CONFIG.interceptor.blastRadius;
-    const r2 = r * r;
+    this.boom(it.x, it.y, 'medium', color, cfg.blastRadius);
+    this.shakeTime = Math.max(this.shakeTime, aam ? 0.1 : 0.18);
+    this.shakeMag = aam ? 3 : 5;
+    sfx.interceptorBoom(this.pan(it.x), aam);
+    const r2 = cfg.blastRadius * cfg.blastRadius;
     for (const m of this.missiles) {
       if (m.dead) continue;
       if (dist2(m.x, m.y, it.x, it.y) <= r2) {
         // The blast deals flat damage: anything ordinary dies outright, but a
-        // heavily-built nuke shrugs it off and needs a second interceptor.
-        m.hp -= CONFIG.interceptor.blastDamage;
+        // heavily-built nuke shrugs it off and needs more warheads.
+        m.hp -= cfg.blastDamage;
         if (m.hp <= 0) {
           this.rewardKill(m);
           m.dead = true;
@@ -1555,6 +1709,166 @@ export class Game {
   }
 
   // -------------------------------------------------------------------------
+  // F-16 airstrike (once-per-wave panic button)
+  // -------------------------------------------------------------------------
+  /**
+   * Scramble the strike: SPACE / the touch STRIKE button. Spends the racked
+   * package and launches ONE F-16 per TWO visible enemies, each carrying two
+   * AAMs — one missile per enemy. Targets are paired by x-neighbourhood so a
+   * jet's two launches lie along a single pass, and each jet flies its own
+   * intercept solution (see planStrikeJet). Denied — package kept — when
+   * nothing is up to shoot at.
+   */
+  callAirstrike() {
+    if (this.state !== 'playing') return;
+    if (!this.airstrike.ready) {
+      sfx.denied();
+      return;
+    }
+    const targets = this.missiles.filter((m) => !m.dead && !m.stealthed);
+    if (targets.length === 0) {
+      sfx.denied();
+      return;
+    }
+    this.airstrike.call();
+    this.devStrikeTimer = 8; // sandbox-only re-arm clock (no-op in a real run)
+
+    // Rack assignment. Targets pair by x-neighbourhood; an armoured nuclear
+    // threat — a nuke, or a MIRV-nuke bus before its split — counts as TWO
+    // enemies and draws a second round from a DIFFERENT airframe, so one
+    // unlucky fizzle can't void the whole engagement.
+    targets.sort((a, b) => a.x - b.x);
+    const isHeavy = (m) => (m.type === 'nuke' && !m.subnuke) || m.type === 'mirvnuke';
+    const heavies = targets.filter(isHeavy);
+    const jetCount = Math.min(
+      Math.max(Math.ceil((targets.length + heavies.length) / 2), heavies.length ? 2 : 1),
+      CONFIG.render.maxJets
+    );
+    const racks = Array.from({ length: jetCount }, () => []);
+    let ri = 0;
+    for (const t of targets) {
+      if (racks[ri].length >= 2) ri++;
+      if (ri >= jetCount) break; // capped flight: the overflow goes unserved
+      racks[ri].push(t);
+    }
+    for (const h of heavies) {
+      // Second round: the nearest OTHER jet with a free rail. An empty rack
+      // is a fresh wingman — taken when no loaded jet is passing close by.
+      let best = null;
+      let bestD = Infinity;
+      for (const rack of racks) {
+        if (rack.length >= 2 || rack.includes(h)) continue;
+        const d = rack.length ? Math.abs(rack[0].x - h.x) : 250;
+        if (d < bestD) {
+          bestD = d;
+          best = rack;
+        }
+      }
+      if (best) best.push(h);
+    }
+
+    const stagger = { 1: 0, [-1]: 0 }; // trail-formation slot per entry side
+    let sideSum = 0;
+    for (const rack of racks) {
+      if (rack.length === 0) continue;
+      const jet = this.planStrikeJet(rack, stagger);
+      sideSum += jet.dir;
+      this.jets.push(jet);
+    }
+    // The flight announces itself: sonic boom rolling in from the (majority)
+    // entry side, the flyby roar crossing the field, and the radio check-in.
+    const side = Math.sign(sideSum) || 1;
+    sfx.sonicBoom(-side * 0.8);
+    sfx.airstrike(side);
+    sfx.say(T.voice.engaging);
+  }
+
+  /**
+   * Lay one F-16's intercept solution. The jet runs in from the side FAR
+   * from its pair — entering close-side it could over-fly the targets before
+   * the rail is in parameters — and enters at the altitude the pair is
+   * PREDICTED to occupy when it reaches firing range, so each shot is a
+   * flat, close-in snap instead of a long climbing chase. Jets sharing an
+   * entry side stack into a trail formation.
+   */
+  planStrikeJet(rack, stagger) {
+    const A = CONFIG.airstrike;
+    const meanX = rack.reduce((s, m) => s + m.x, 0) / rack.length;
+    const dir = meanX < this.W / 2 ? -1 : 1; // targets left => run in from the right
+    const x0 =
+      dir > 0 ? -60 - stagger[dir] * A.jetSpacing : this.W + 60 + stagger[dir] * A.jetSpacing;
+    stagger[dir]++;
+    // Engage in encounter order: the target nearest the entry side first.
+    rack.sort((a, b) => (a.x - b.x) * dir);
+    // Time until the first launch, refined once against the target's own
+    // motion, then the rack's predicted mean altitude at that moment.
+    const first = rack[0];
+    let t = Math.max(0.2, (Math.abs(x0 - first.x) - A.fireRange) / A.jetSpeed);
+    const px = first.x + first.vx * t;
+    t = Math.max(0.2, (Math.abs(x0 - px) - A.fireRange) / A.jetSpeed);
+    let y = rack.reduce((s, m) => s + m.y + m.vy * t, 0) / rack.length;
+    // A touch above the predicted point — a slight look-down shot.
+    y = clamp(y - 60, this.groundY * A.entryBand[0], this.groundY * A.entryBand[1]);
+    return new FriendlyJet(x0, y, dir, rack, this.W);
+  }
+
+  /**
+   * One AAM straight off the jet's nose. The airframe has already done the
+   * gross aiming (FriendlyJet pitches onto the target line before firing);
+   * the round leaves on the carrier's exact heading and its seeker — live
+   * immediately, no cold-launch climb gate — flies the endgame.
+   */
+  fireAAM(jet, target) {
+    if (target.dead) target = this.nearestAirTarget(jet.x, jet.y, true);
+    if (!target) return;
+    if (this.aamList.length >= CONFIG.render.maxAAMs) return; // pool guard
+    const A = CONFIG.airstrike.missile;
+    const sp = Math.hypot(jet.vx, jet.vy) || 1;
+    const ux = jet.vx / sp;
+    const uy = jet.vy / sp;
+    const it = new Interceptor(jet.x + ux * 14, jet.y + uy * 14, target, {
+      cfg: A,
+      kind: 'aam',
+      vx: ux * A.launchSpeed,
+      vy: uy * A.launchSpeed,
+    });
+    this.aamList.push(it);
+    sfx.aamLaunch(this.pan(jet.x));
+  }
+
+  /**
+   * Nearest live visible enemy — AAM retasking engages anything that flies.
+   * With `preferFresh`, enemies not already engaged by a live AAM win over
+   * closer ones that are, so retargeted rounds spread instead of piling on.
+   */
+  nearestAirTarget(x, y, preferFresh = false) {
+    const engaged = preferFresh
+      ? new Set(
+          this.aamList
+            .filter((a) => !a.dead && a.target && !a.target.dead)
+            .map((a) => a.target)
+        )
+      : null;
+    let best = null;
+    let bestD = Infinity;
+    let fresh = null;
+    let freshD = Infinity;
+    for (const m of this.missiles) {
+      if (m.dead || m.stealthed) continue;
+      const d = dist2(m.x, m.y, x, y);
+      if (d < bestD) {
+        bestD = d;
+        best = m;
+      }
+      if (engaged && !engaged.has(m) && d < freshD) {
+        freshD = d;
+        fresh = m;
+      }
+    }
+    return fresh || best;
+  }
+
+  // -------------------------------------------------------------------------
   // Rendering: 3D world via renderer, 2D HUD/overlay here.
   // -------------------------------------------------------------------------
   render() {
@@ -1562,6 +1876,14 @@ export class Game {
 
     const ctx = this.hctx;
     ctx.clearRect(0, 0, this.screenW, this.screenH);
+
+    // Nuclear flash: a brief warm white-out over the whole scene, fading as
+    // the fireball does. Drawn under the HUD so the readouts stay legible.
+    if (this.screenFlash > 0) {
+      const a = Math.min(1, this.screenFlash * 2.2) ** 2 * 0.75;
+      ctx.fillStyle = `rgba(255,246,228,${a.toFixed(3)})`;
+      ctx.fillRect(0, 0, this.screenW, this.screenH);
+    }
 
     const aiming = this.state === 'playing' && !this.paused;
 
@@ -1583,8 +1905,14 @@ export class Game {
     this.drawHUD(ctx);
     ctx.restore();
 
-    // Touch: the fire-control pad sits below the field, outside the shake.
-    if (this.touchMode && this.state === 'playing') this.drawTouchPad(ctx);
+    // Touch: the fire-control pad sits below the field, outside the shake,
+    // with the F-16 STRIKE button floating above its right edge when armed.
+    if (this.touchMode && this.state === 'playing') {
+      this.drawTouchPad(ctx);
+      this.drawStrikeButton(ctx);
+    } else {
+      this.strikeBtnRect = null;
+    }
 
     // The dev console replaces whatever overlay would be up underneath it.
     if (this.devMenuOpen) this.drawDevMenu(ctx);
@@ -1609,7 +1937,7 @@ export class Game {
    */
   drawThreatTags(ctx) {
     // Per-type bracket half-size, roughly tracking the airframe's bulk.
-    const half = { bomber: 26, nuke: 18, cruise: 13, stealth: 13, drone: 9, glidebomb: 8 };
+    const half = { bomber: 26, nuke: 18, mirvnuke: 20, cruise: 13, stealth: 13, drone: 9, glidebomb: 8 };
     const hoverR2 = CONFIG.ui.tagHoverRadius * CONFIG.ui.tagHoverRadius;
     const drawn = []; // label anchor points already used this frame
     ctx.save();
@@ -1625,7 +1953,7 @@ export class Game {
       const p = this.renderer.worldToScreen(m.x, m.y);
       const h = half[m.type] ?? 11;
       const arm = Math.max(3, h * 0.45); // corner bracket arm length
-      const hot = m.type === 'nuke';
+      const hot = m.type === 'nuke' || m.type === 'mirvnuke';
       const col = hot ? C.crosshairEmpty : C.lock;
       ctx.globalAlpha = (hot ? 0.9 : 0.55) * fade;
       ctx.strokeStyle = col;
@@ -1700,11 +2028,12 @@ export class Game {
       bomber: C.missileBomber,
       glidebomb: C.missileGlidebomb,
       nuke: C.missileNuke,
+      mirvnuke: C.missileMirvNuke,
     };
     for (const m of this.missiles) {
       if (m.dead || m.stealthed) continue;
       if (m.x < -40 || m.x > this.W + 40 || m.y < -40) continue;
-      const hot = m.type === 'nuke';
+      const hot = m.type === 'nuke' || m.type === 'mirvnuke';
       const s = hot ? 3.5 : 2;
       ctx.fillStyle = blipCol[m.type] ?? C.missile;
       ctx.fillRect(sx(m.x) - s / 2, sy(m.y) - s / 2, s, s);
@@ -1713,6 +2042,16 @@ export class Game {
     for (const it of this.interceptorList) {
       if (it.dead) continue;
       ctx.fillRect(sx(it.x) - 1, sy(it.y) - 1, 2, 2);
+    }
+    ctx.fillStyle = C.aam;
+    for (const it of this.aamList) {
+      if (it.dead) continue;
+      ctx.fillRect(sx(it.x) - 1, sy(it.y) - 1, 2, 2);
+    }
+    ctx.fillStyle = C.jet;
+    for (const j of this.jets) {
+      if (j.dead || j.x < -40 || j.x > this.W + 40) continue;
+      ctx.fillRect(sx(j.x) - 2, sy(j.y) - 1, 4, 2);
     }
 
     // Aim marker: a small reticle at the mapped aim point.
@@ -1731,6 +2070,39 @@ export class Game {
     ctx.moveTo(ax, ay + 3);
     ctx.lineTo(ax, ay + 9);
     ctx.stroke();
+    ctx.restore();
+  }
+
+  /**
+   * Touch: the on-screen airstrike trigger. Shown only while a package is
+   * racked (it IS the affordance — no button, no strike). Docked just above
+   * the fire-control pad's right corner, clear of the thumb's aim arc.
+   */
+  drawStrikeButton(ctx) {
+    if (!this.airstrike.ready || !this.padRect) {
+      this.strikeBtnRect = null;
+      return;
+    }
+    const pr = this.padRect;
+    const w = 128;
+    const h = 42;
+    const r = { x: pr.x + pr.w - w, y: pr.y - h - 8, w, h };
+    this.strikeBtnRect = r;
+    ctx.save();
+    ctx.fillStyle = 'rgba(10,24,20,0.85)';
+    this._roundRect(ctx, r.x, r.y, r.w, r.h, 8);
+    ctx.fill();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = C.aam;
+    this._roundRect(ctx, r.x, r.y, r.w, r.h, 8);
+    ctx.stroke();
+    this.text(T.touch.strike, r.x + r.w / 2, r.y + r.h / 2 + 4, {
+      size: 13,
+      align: 'center',
+      weight: 'bold',
+      color: C.aam,
+      glow: true,
+    });
     ctx.restore();
   }
 
@@ -1933,7 +2305,15 @@ export class Game {
     }
     if (this.laser.owned) {
       const lReady = this.laser.canFire || this.laser.burning;
-      this.hudBar(ctx, this.laserHudLabel(), this.laser.chargeFrac, lReady, C.laser, rx, y, barW);
+      y = this.hudBar(ctx, this.laserHudLabel(), this.laser.chargeFrac, lReady, C.laser, rx, y, barW);
+    }
+    if (this.airstrike.ready) {
+      this.text(T.hud.strikeReady, rx, y, {
+        size: 12,
+        align: 'center',
+        color: C.aam,
+        glow: true,
+      });
     }
   }
 
@@ -1970,6 +2350,14 @@ export class Game {
       ctx.fillStyle = lOn ? C.laser : C.hudDim;
       ctx.fillRect(rx - 90, 80, 90 * this.laser.chargeFrac, 4);
     }
+    if (this.airstrike.ready) {
+      this.text(T.hud.strikeReadyShort, rx, 102, {
+        size: 12,
+        align: 'right',
+        color: C.aam,
+        glow: true,
+      });
+    }
   }
 
   dim(ctx, alpha = 0.6) {
@@ -2003,10 +2391,14 @@ export class Game {
       });
       // Label + description rows. The description is wrapped to the screen,
       // so narrow (phone) windows reflow instead of running off the edge.
-      // On touch the AIM row teaches the fire-control pad instead of a mouse.
-      const rows = T.howToPlay.map((row, i) =>
-        i === 0 && this.touchMode ? T.touch.howToAim : row
-      );
+      // On touch the AIM and AIRSTRIKE rows teach the pad / STRIKE button
+      // instead of the mouse and spacebar.
+      const rows = T.howToPlay.map((row, i) => {
+        if (!this.touchMode) return row;
+        if (i === 0) return T.touch.howToAim;
+        if (row[0] === T.touch.howToStrike[0]) return T.touch.howToStrike;
+        return row;
+      });
       const fs = compact ? 11.5 : 13;
       const lh = compact ? 16 : 18;
       const labelX = compact ? 110 : cx - 230;
@@ -2212,15 +2604,16 @@ export class Game {
       info: X.fireRate.info,
     });
 
-    const hasTwin = this.ciws.twin;
+    const armed = this.airstrike.ready;
     items.push({
-      label: X.twin.label,
-      desc: hasTwin ? X.twin.descOwned : X.twin.desc,
-      cost: hasTwin ? null : S.twinBarrelCost,
-      soldOut: hasTwin,
-      enabled: !hasTwin && cr >= S.twinBarrelCost,
-      action: () => this.ciws.upgradeTwin(),
-      info: X.twin.info,
+      label: X.airstrike.label,
+      desc: armed ? X.airstrike.descArmed : X.airstrike.desc,
+      cost: armed ? null : CONFIG.airstrike.cost,
+      soldOut: armed,
+      right: armed ? T.shop.armed : null, // rack status instead of a price
+      enabled: !armed && cr >= CONFIG.airstrike.cost,
+      action: () => this.airstrike.buy(),
+      info: X.airstrike.info,
     });
 
     return items;
@@ -2489,7 +2882,8 @@ export class Game {
       }
 
       let right;
-      if (it.cost == null) right = T.shop.maxedOut;
+      if (it.right) right = it.right;
+      else if (it.cost == null) right = T.shop.maxedOut;
       else if (it.soldOut) right = T.shop.soldOut;
       else right = T.shop.price(it.cost);
       this.text(right, r.x + r.w - 16, r.y + r.h / 2 + 5, {
@@ -2586,7 +2980,8 @@ export class Game {
 
     // BUY: the only thing that spends money on touch. Label tracks state.
     let buyLabel;
-    if (it.cost == null) buyLabel = T.shop.buyMaxed;
+    if (it.right) buyLabel = it.right;
+    else if (it.cost == null) buyLabel = T.shop.buyMaxed;
     else if (it.soldOut) buyLabel = T.shop.buyOwned;
     else buyLabel = T.shop.buy(it.cost);
     ctx.fillStyle = it.enabled ? 'rgba(108,240,255,0.85)' : 'rgba(80,100,125,0.35)';
@@ -2750,6 +3145,17 @@ export class Game {
 
     window.addEventListener('pointerdown', (e) => {
       sfx.unlock();
+      // Touch STRIKE button: handled before aiming so the tap doesn't also
+      // yank the gun toward the corner of the screen.
+      if (
+        this.touchMode &&
+        this.state === 'playing' &&
+        this.strikeBtnRect &&
+        this._inRect(e.clientX, e.clientY, this.strikeBtnRect)
+      ) {
+        this.callAirstrike();
+        return;
+      }
       setPointer(e);
       if (e.button !== 0) return;
       if (this.devMenuOpen) {
@@ -2806,7 +3212,8 @@ export class Game {
       return;
     }
     if (key === ' ' || key === 'spacebar') {
-      // On the menu, space resumes the checkpoint if there is one.
+      // On the menu, space resumes the checkpoint if there is one. In play
+      // it's the airstrike trigger.
       if (this.state === 'menu') {
         if (this.savedRun) this.continueGame();
         else this.startGame();
@@ -2814,6 +3221,8 @@ export class Game {
         this.startGame();
       } else if (this.state === 'intermission') {
         this.proceedToNextWave();
+      } else if (this.state === 'playing' && !this.paused) {
+        this.callAirstrike();
       }
       return;
     }

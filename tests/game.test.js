@@ -398,7 +398,7 @@ describe('Shop', () => {
     g.startGame();
     g.credits = 0;
     const items = g.getShopItems();
-    expect(items).toHaveLength(5); // intcp, shield, laser, fire rate, twin
+    expect(items).toHaveLength(5); // intcp, shield, laser, fire rate, airstrike
     const upgrade = items[0];
     expect(upgrade.enabled).toBe(false); // can't afford
     const cd0 = g.interceptorWeapon.cooldown;
@@ -458,16 +458,31 @@ describe('Shop', () => {
     expect(g.interceptorWeapon.cooldown).toBe(ladder[ladder.length - 1]);
   });
 
-  it('buying Twin Barrels enables the second barrel and then sells out', () => {
+  it('buying the strike package arms it and the row reads ARMED', () => {
     const g = newGame();
     g.startGame();
     g.credits = 1000;
-    expect(g.ciws.twin).toBe(false);
-    g.buyItem(find(g, SL.twin.label));
-    expect(g.ciws.twin).toBe(true);
-    const item = find(g, SL.twin.label);
+    expect(g.airstrike.ready).toBe(false);
+    g.buyItem(find(g, SL.airstrike.label));
+    expect(g.airstrike.ready).toBe(true);
+    expect(g.credits).toBe(1000 - CONFIG.airstrike.cost);
+    const item = find(g, SL.airstrike.label);
     expect(item.soldOut).toBe(true);
     expect(item.cost).toBeNull();
+    expect(item.enabled).toBe(false); // can't stack a second package
+  });
+
+  it('the fire-rate ladder runs one level deeper than it used to', () => {
+    const g = newGame();
+    g.startGame();
+    for (let i = 0; i < CONFIG.shop.fireRateCosts.length; i++) {
+      g.credits = 100000;
+      g.buyItem(find(g, SL.fireRate.labelMax));
+    }
+    const maxed = find(g, SL.fireRate.labelMax);
+    expect(maxed.cost).toBeNull();
+    expect(g.ciws.fireRateLevel).toBe(CONFIG.shop.fireRateCosts.length);
+    expect(CONFIG.shop.fireRateCosts.length).toBe(7);
   });
 });
 
@@ -881,6 +896,7 @@ describe('New threats', () => {
     g.startGame();
     g.waveSpawnTotal = 30;
     g.toSpawn = 15; // mid-wave so the order gate passes
+    g.mirvNukesSpawned = 99; // park the MIRV-nuke roll; this tests the nuke cap
     const N = CONFIG.missile.nuke;
 
     g.wave = N.fromWave;
@@ -996,17 +1012,33 @@ describe('Laser', () => {
     expect(distant.hp).toBe(distant.maxHp);
   });
 
-  it('holds fire with no eligible targets and stays charged', () => {
+  it('holds fire while only a cloaked stealth missile is up, and stays charged', () => {
     const g = newGame();
     g.startGame();
     g.laser.buy();
-    const hyper = new EnemyMissile(500, 300, 500, g.groundY, 450, 0, g.groundY, 'hypersonic');
-    g.missiles = [hyper];
-    g.updateLaser(1 / 60);
-    expect(hyper.dead).toBe(false);
+    g.missiles = [];
+    g.toSpawn = 0;
+    g.spawnCruise('stealth');
+    const ghost = g.missiles[0];
+    expect(ghost.stealthed).toBe(true);
+    for (let i = 0; i < 30; i++) g.updateLaser(1 / 60);
+    expect(g.laser.target).toBeNull(); // it can't see what isn't there
+    expect(ghost.hp).toBe(ghost.maxHp);
     expect(g.laser.canFire).toBe(true);
     expect(g.laserBeams).toHaveLength(0);
     expect(g.laserBeamLive).toBeNull();
+  });
+
+  it('now engages the fast movers too (buffed to all visible targets)', () => {
+    const g = newGame();
+    g.startGame();
+    g.laser.buy();
+    const hyper = new EnemyMissile(560, 100, 560, g.groundY, 450, 0, g.groundY, 'hypersonic');
+    hyper.update = () => null; // hold still inside the envelope
+    hyper.y = 800;
+    g.missiles = [hyper];
+    for (let i = 0; i < 60 && !g.laser.target; i++) g.updateLaser(1 / 60);
+    expect(g.laser.target).toBe(hyper);
   });
 });
 

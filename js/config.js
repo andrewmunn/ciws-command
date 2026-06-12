@@ -42,7 +42,6 @@ export const CONFIG = {
     startAmmo: Infinity, // the belt feed is endless — the gun never runs dry
     fireInterval: 0.038, // seconds between rounds while firing (~26 rounds/s)
     dispersionDeg: 0.8, // half-angle of the random firing cone (tight)
-    twinSpacing: 8, // px between the two barrels once the twin upgrade is bought
   },
 
   // --- Bullets (tracer rounds) -------------------------------------------
@@ -86,6 +85,7 @@ export const CONFIG = {
       bomber: 3,
       glidebomb: 1,
       nuke: 30,
+      mirvnuke: 10,
     },
     hitFlashTime: 0.12, // seconds the body flashes white on a non-killing hit
 
@@ -211,17 +211,43 @@ export const CONFIG = {
       blastRadius: 230,
     },
 
-    // Evasive (weaving) variant. The weave is a sum of several sine components
-    // with randomized frequencies/phases per missile, so each one jinks on its
-    // own irregular rhythm rather than a predictable wobble.
+    // Evasive (jinking) variant. Real maneuvering physics: the RV pulls a
+    // constant-magnitude lateral acceleration whose direction reverses on an
+    // irregular timer, carving smooth banked S-turns around its ballistic
+    // line. A predictive flip keeps the offset inside the leash (the airframe
+    // commits to the pull-back exactly when the current pull could no longer
+    // turn around in time), so the jink is bounded without scripted sines.
     evasive: {
       fromWave: 2,
       chance: 0.28, // probability a given missile is evasive
-      speedFactor: 1.12, // a touch faster than a normal missile
-      weaveAmp: 54, // px of lateral sway
-      weaveComponents: 3, // number of summed sine terms
-      weaveFreqMin: 2.2, // rad/s
-      weaveFreqMax: 7.5, // rad/s
+      speedFactor: 1.35, // noticeably faster than a normal missile
+      jinkAccel: 420, // px/s^2 of lateral thruster authority (the constant g-pull)
+      jinkOffsetMax: 64, // px leash around the ballistic line
+      jinkHold: [0.3, 0.85], // seconds between random command reversals
+    },
+
+    // MIRV nuke: a very-late-game terror weapon. The carrier bus comes in
+    // FASTER than a regular nuke but with far less armour — kill it before
+    // the split and the whole attack dies with it. Let it split and three
+    // small independent warheads fan out onto three different cities, each
+    // an air-bursting mini-nuke (smaller yield: it levels only the city it
+    // hits, not the neighbours).
+    mirvNuke: {
+      fromWave: 9,
+      chance: 0.05,
+      maxPerWave: 1,
+      wavesPerExtra: 4, // cap climbs forever, slower than the regular nuke's
+      speedFactor: 1.5, // much hotter reentry than the lumbering nuke
+      scale: 2.0, // visual size multiplier for the carrier bus
+      children: 3, // warheads released at the split
+      splitAltitude: [0.3, 0.45], // fraction of play height where it splits
+      childSpeedFactor: 0.75, // children slow to terminal-dive speed
+      childHp: 3, // each small warhead is barely armoured — gunfire shreds it
+      childScale: 1.4, // visual size of a released warhead
+      // Levels just the city under the burst: radius + a city's half-width
+      // (58) must stay inside one slot spacing (~162), so neighbours survive.
+      childBlastRadius: 95,
+      warningTime: 3, // same launch-detection warning as the nuke
     },
   },
 
@@ -260,23 +286,71 @@ export const CONFIG = {
     trailMinStep: 6,
   },
 
+  // --- F-16 airstrike (purchasable once-per-wave panic button) -------------
+  // SPACE (or the touch STRIKE button) scrambles ONE F-16 per TWO enemies on
+  // screen, each carrying two air-to-air missiles — one AAM per enemy. Each
+  // jet runs in from the side FAR from its pair (a close-side entry would
+  // over-fly the target before the rail is in parameters) at the altitude
+  // its targets are predicted to occupy when it reaches firing range, so
+  // the shot is a flat, close-in snap. Bought in the armory; one package in
+  // the rack at a time, and an unused package carries over to the next wave.
+  airstrike: {
+    cost: 60, // armory price for one strike package
+    jetSpeed: 560, // px/s across the sky (fast — a proper combat dash)
+    fireRange: 480, // the rail comes into parameters this far (x) from the target
+    jetSpacing: 150, // px of trail between successive jets sharing an entry side
+    entryBand: [0.08, 0.78], // clamp on entry altitude (fraction of play height)
+    fireGap: [0.22, 0.5], // seconds between a jet's two launches
+    // The pilot points the nose at each target before firing — the AAM goes
+    // straight off the rail along the nose, so the jet does the gross aiming
+    // and the seeker only has to fly the endgame. "Within reason": pitch
+    // authority and turn rate are limited, so the airframe banks onto the
+    // line rather than snapping to it.
+    turnRate: 1.7, // rad/s the airframe can pitch onto a target line
+    maxPitchDeg: 32, // steepest climb/dive it will hold — within reason
+    aimToleranceDeg: 16, // fires once the nose is this close to the target line
+    // AAM: same guidance mechanics as the interceptor (turn-rate homing,
+    // energy bleed per radian, self-destruct below maneuvering speed) but a
+    // smaller round that leaves the rail already fast and with its seeker
+    // live IMMEDIATELY (no cold-launch climb gate) — though it can still
+    // miss a hard-jinking target or run out of energy on a long tail-chase.
+    missile: {
+      launchSpeed: 700, // rail + carrier speed: born supersonic
+      boostTime: 0.45, // short motor burn
+      thrust: 1000,
+      maxSpeed: 1100,
+      turnRate: 4.2,
+      steerAfterClimb: 0, // fired on-axis: guidance is live off the rail
+      turnBleed: 0.45,
+      minSpeed: 230,
+      detonateRadius: 22,
+      blastRadius: 44, // smaller warhead than the ground-launched interceptor
+      // Two hits exactly crack a 10-HP MIRV-nuke bus (each gets a pair, from
+      // different jets); a full 30-HP nuke still shrugs the pair off.
+      blastDamage: 5,
+      lifetime: 4.0,
+      trailMaxPoints: 14,
+      trailMinStep: 6,
+    },
+  },
+
   // --- Laser (purchasable autonomous point-defense beam) ------------------
   laser: {
     cost: 85, // one-time purchase
     upgradeCosts: [50, 80, 115, 170, 240], // recharge upgrades after it's owned
-    cooldowns: [6, 4.5, 3.2, 2.2, 1.5, 1], // recharge between burns, by upgrade level
+    cooldowns: [5, 4, 3, 2.2, 1.5, 1], // recharge between burns, by upgrade level
     dps: 2.6, // HP/s burned at point-blank; falls off with distance
     fullPowerDist: 280, // beam burns at full dps inside this distance
     range: 720, // beyond this the laser can't latch on at all
     turnRate: 4.0, // rad/s the emitter head can slew (it must aim before burning)
     aimToleranceDeg: 4, // burns only once aimed within this of the target
-    minElevationDeg: 15, // can't depress below this above the horizon
+    minElevationDeg: 5, // can't depress below this above the horizon
     barrelLength: 13, // emitter barrel length (beam originates at its tip)
     beamTime: 0.22, // seconds the beam visual lingers after the burn ends
     offsetX: -46, // emplacement sits left of the CIWS mount
     emitterHeight: 26, // beam origin height above the ground
-    // It only engages cheap, predictable targets: drones and plain RVs
-    // (post-split MIRV children included; armoured carriers excluded).
+    // It engages ANY visible threat in its envelope (cloaked stealth stays
+    // immune); armoured targets just take a longer, committed burn.
   },
 
   // --- Gun shield (a shop upgrade ladder; cities can't be shielded) -------
@@ -322,6 +396,8 @@ export const CONFIG = {
       bomber: 4,
       glidebomb: 1,
       nuke: 12,
+      mirvnuke: 10, // the unsplit carrier bus
+      subnuke: 5, // each small warhead released by the split
     },
     clearBonus: 5, // destroyed every enemy this wave (nothing leaked)
     perCitySurvived: 2, // credits per surviving city, end of wave
@@ -333,9 +409,9 @@ export const CONFIG = {
     // Length = max upgrade levels (matches interceptor.cooldowns - 1).
     interceptorCost: 12, // buy the battery itself — cheap, the natural first purchase
     interceptorCooldownCosts: [30, 55, 85, 130, 190, 260, 350],
-    fireRateCosts: [30, 50, 75, 110, 160, 220],
+    // One extra top level stands in for the removed twin-barrel upgrade.
+    fireRateCosts: [30, 50, 75, 110, 160, 220, 300],
     fireRateFactor: 0.82, // fire interval multiplier per level
-    twinBarrelCost: 100, // one-time: a second barrel firing side by side
   },
 
   // --- 3D render / bloom --------------------------------------------------
@@ -353,8 +429,10 @@ export const CONFIG = {
     maxParticles: 900,
     maxSmoke: 800, // headroom for mushroom clouds on top of battle smoke
     maxMissiles: 220,
-    maxBullets: 700, // headroom for a max-fire-rate twin-barrel stream
+    maxBullets: 700, // headroom for a max-fire-rate stream
     maxInterceptors: 16,
+    maxAAMs: 26, // air-to-air missiles in flight during an airstrike
+    maxJets: 12, // friendly F-16 airframes (one per two enemies, capped here)
     maxExplosions: 24, // pooled fireball/shockwave effects
     exposure: 1.05,
   },
@@ -414,7 +492,10 @@ export const CONFIG = {
     missileGlidebomb: '#cbb878',
     missileDrone: '#c9d4df',
     missileNuke: '#ff2438',
+    missileMirvNuke: '#ff4d9e', // hot pink-red: unmistakably "nuke, but worse"
     flare: '#ffce6e',
+    jet: '#9fb6c9', // friendly F-16 airframes
+    aam: '#8affc1', // air-to-air missiles (cool mint, distinct from interceptors)
     missileTrail: '#ff5a4d',
     laser: '#ff4df0',
     bullet: '#ffe98a',

@@ -177,25 +177,15 @@ export class EnemyMissile {
     this.hx = this.vx;
     this.hy = this.vy;
 
-    const ev = CONFIG.missile.evasive;
-    this.weaveAmp = type === 'evasive' ? ev.weaveAmp : 0;
-    // Build several sine terms with random freq/phase and random weights that
-    // sum to 1, so the lateral offset stays within +/-weaveAmp but follows an
-    // irregular, hard-to-read path.
-    this.weaveComps = [];
-    if (this.weaveAmp > 0) {
-      let wsum = 0;
-      for (let i = 0; i < ev.weaveComponents; i++) {
-        const w = rand(0.4, 1);
-        wsum += w;
-        this.weaveComps.push({
-          w,
-          f: rand(ev.weaveFreqMin, ev.weaveFreqMax),
-          p: rand(0, Math.PI * 2),
-        });
-      }
-      for (const c of this.weaveComps) c.w /= wsum; // normalize weights
-    }
+    // Evasive jink: a constant-magnitude lateral acceleration whose direction
+    // reverses on an irregular timer — real maneuvering, integrated each
+    // frame, rather than a scripted sine wobble. State: lateral offset from
+    // the ballistic line, its velocity, and the current pull direction.
+    this.jinking = type === 'evasive';
+    this.jinkOff = 0;
+    this.jinkVel = 0;
+    this.jinkDir = Math.random() < 0.5 ? 1 : -1;
+    this.jinkTimer = this.jinking ? rand(...CONFIG.missile.evasive.jinkHold) : 0;
 
     this.trail = [{ x: startX, y: startY }];
 
@@ -206,6 +196,11 @@ export class EnemyMissile {
     if (splitsRemaining > 0 && playHeight > 0) {
       const [lo, hi] = CONFIG.missile.splitAltitude;
       this.splitY = playHeight * rand(lo, hi);
+    } else if (type === 'mirvnuke' && playHeight > 0) {
+      // The MIRV-nuke bus splits on its own (lower) altitude band; the game
+      // spawns its small-warhead children when update() reports 'split'.
+      const [lo, hi] = CONFIG.missile.mirvNuke.splitAltitude;
+      this.splitY = playHeight * rand(lo, hi);
     } else {
       this.splitY = Infinity;
     }
@@ -214,6 +209,7 @@ export class EnemyMissile {
     const hp = CONFIG.missile.hp;
     this.maxHp = splitsRemaining > 0 ? hp.mirv : hp[type] || hp.normal;
     this.hp = this.maxHp;
+    this.subnuke = false; // set by the game on warheads a MIRV nuke releases
     this.hitFlash = 0; // brief white flash on a non-killing hit
 
     // Hypersonics barely feel drag, so they stay fast all the way down.
@@ -367,20 +363,31 @@ export class EnemyMissile {
     this.cx += this.vx * dt;
     this.cy += this.vy * dt;
 
-    if (this.weaveAmp > 0) {
-      // Lateral offset and its time-derivative (the lateral velocity).
-      let off = 0;
-      let dOff = 0;
-      for (const c of this.weaveComps) {
-        off += c.w * Math.sin(this.age * c.f + c.p);
-        dOff += c.w * c.f * Math.cos(this.age * c.f + c.p);
+    if (this.jinking) {
+      // Bang-bang lateral guidance. The pull direction flips either when the
+      // random hold timer expires, or — the bounding rule — the moment the
+      // current pull could no longer turn the offset around inside the leash
+      // (stopDist = off + v|v|/2a, the kinematic turn-around point). That
+      // keeps the jink inside jinkOffsetMax without any scripted waveform.
+      const ev = CONFIG.missile.evasive;
+      const stop = this.jinkOff + (this.jinkVel * Math.abs(this.jinkVel)) / (2 * ev.jinkAccel);
+      if (stop > ev.jinkOffsetMax) this.jinkDir = -1;
+      else if (stop < -ev.jinkOffsetMax) this.jinkDir = 1;
+      else {
+        this.jinkTimer -= dt;
+        if (this.jinkTimer <= 0) {
+          this.jinkDir = Math.random() < 0.5 ? 1 : -1;
+          this.jinkTimer = rand(...ev.jinkHold);
+        }
       }
-      const w = off * this.weaveAmp;
-      const dw = dOff * this.weaveAmp;
-      this.x = this.cx + this.perpX * w;
-      this.y = this.cy + this.perpY * w;
-      this.hx = this.vx + this.perpX * dw;
-      this.hy = this.vy + this.perpY * dw;
+      this.jinkVel += this.jinkDir * ev.jinkAccel * dt;
+      this.jinkOff += this.jinkVel * dt;
+      this.x = this.cx + this.perpX * this.jinkOff;
+      this.y = this.cy + this.perpY * this.jinkOff;
+      // True velocity = core velocity + lateral velocity: the airframe banks
+      // along its real flight path instead of wagging around a straight one.
+      this.hx = this.vx + this.perpX * this.jinkVel;
+      this.hy = this.vy + this.perpY * this.jinkVel;
     } else {
       this.x = this.cx;
       this.y = this.cy;
@@ -403,6 +410,13 @@ export class EnemyMissile {
       this.hp = Math.min(this.hp, this.maxHp);
       return 'split';
     }
+    // MIRV nuke bus: at the split the carrier is SPENT — the game replaces it
+    // with three independent small warheads and the empty bus tumbles away.
+    if (this.type === 'mirvnuke' && this.cy >= this.splitY) {
+      this.splitY = Infinity;
+      this.dead = true;
+      return 'split';
+    }
     // Nukes fuze for an AIR BURST above their target; everything else rides
     // into the dirt.
     const impactY =
@@ -419,22 +433,29 @@ export class EnemyMissile {
 EnemyMissile._nextId = 1;
 
 // ---------------------------------------------------------------------------
-// Interceptor — the player's secondary weapon: a homing anti-missile launched
-// at a locked target. Steers toward the target each frame (capped turn rate)
-// and detonates with an area blast on arrival.
+// Interceptor — a homing anti-missile. Steers toward the target each frame
+// (capped turn rate) and detonates with an area blast on arrival. Two flavours
+// share the class and all of its guidance/energy mechanics:
+//   - the ground-launched interceptor (default): cold-launched straight up,
+//     steering locked until it clears the launch column.
+//   - an F-16's air-to-air missile (kind 'aam'): smaller, born fast on the
+//     carrier's heading with guidance live off the rail. Pass its config and
+//     initial velocity via `opts`.
 // ---------------------------------------------------------------------------
 export class Interceptor {
-  constructor(x, y, target) {
-    const cfg = CONFIG.interceptor;
+  constructor(x, y, target, opts = {}) {
+    const cfg = (this.cfg = opts.cfg || CONFIG.interceptor);
+    this.kind = opts.kind || 'interceptor';
     this.x = x;
     this.y = y;
     this.target = target;
     this.age = 0;
     this.boosting = true;
-    // Cold-launched straight up out of the pod — it has to turn onto an
-    // intercept course in flight (low, far targets cost real turning time).
-    this.vx = 0;
-    this.vy = -cfg.launchSpeed;
+    // Default: cold-launched straight up out of the pod — it has to turn onto
+    // an intercept course in flight. An AAM instead inherits its carrier's
+    // velocity (plus rail boost), already pointed roughly at the target.
+    this.vx = opts.vx ?? 0;
+    this.vy = opts.vy ?? -cfg.launchSpeed;
     this.launchY = y; // steering is locked until it clears the launch column
     this.life = cfg.lifetime;
     this.dead = false;
@@ -443,14 +464,17 @@ export class Interceptor {
 
   /** Returns 'detonate' (warhead burst), 'fizzle' (dud), or null. */
   update(dt, groundY) {
-    const cfg = CONFIG.interceptor;
+    const cfg = this.cfg;
     this.age += dt;
     if (this.target && this.target.dead) this.target = null;
 
     // Steer the velocity heading toward the target, capped by the turn rate.
-    // The round flies STRAIGHT UP for its first stretch of climb (clearing
-    // the launch column, like a real cold launch) before guidance kicks in.
-    const canSteer = this.launchY - this.y >= cfg.steerAfterClimb;
+    // A cold-launched round flies STRAIGHT UP for its first stretch of climb
+    // (clearing the launch column) before guidance kicks in; a rail-fired
+    // AAM (steerAfterClimb 0) is live immediately — the climb test would
+    // otherwise never pass for a round diving on a target BELOW its rail.
+    const canSteer =
+      cfg.steerAfterClimb <= 0 || this.launchY - this.y >= cfg.steerAfterClimb;
     let dirX = this.vx;
     let dirY = this.vy;
     if (this.target && canSteer) {
@@ -551,6 +575,88 @@ export class Flare {
     this.x += this.vx * dt;
     this.y += this.vy * dt;
     if (this.age >= this.life) this.dead = true;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// FriendlyJet — an F-16 scrambled by the airstrike. It dashes across the sky
+// POINTING ITS NOSE at the current racked target (pitch authority and turn
+// rate limited, so it banks onto the line rather than snapping), and fires
+// each AAM straight off the nose once the target is in range and the nose is
+// on the line (the Game owns the actual missile spawning; the jet just says
+// "fire now at this target"). It can't be hit and exits the far side.
+// ---------------------------------------------------------------------------
+export class FriendlyJet {
+  constructor(x, y, dir, targets, fieldW) {
+    const cfg = CONFIG.airstrike;
+    this.x = x;
+    this.y = y;
+    this.dir = dir; // +1 flying right, -1 flying left
+    this.vx = dir * cfg.jetSpeed;
+    this.vy = 0;
+    this.dead = false;
+    this.age = 0;
+    this.rack = targets.slice(); // targets to engage, in encounter order
+    this.fireTimer = 0;
+    this.exitX = dir > 0 ? fieldW + 200 : -200;
+  }
+
+  /** Smallest signed angle from `from` to `to`. */
+  static _angDiff(to, from) {
+    let d = to - from;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    return d;
+  }
+
+  /** Returns a target to fire at right now, or null. */
+  update(dt) {
+    const cfg = CONFIG.airstrike;
+    this.age += dt;
+
+    // Nose-aim: pitch toward the current target, clamped to the airframe's
+    // pitch limit around level flight; ease back level once the rack is dry.
+    const level = this.dir > 0 ? 0 : Math.PI;
+    const t = this.rack[0];
+    let desired = level;
+    if (t && !t.dead) {
+      const maxPitch = (cfg.maxPitchDeg * Math.PI) / 180;
+      const rel = FriendlyJet._angDiff(Math.atan2(t.y - this.y, t.x - this.x), level);
+      desired = level + Math.max(-maxPitch, Math.min(maxPitch, rel));
+    }
+    const cur = Math.atan2(this.vy, this.vx);
+    const maxTurn = cfg.turnRate * dt;
+    const diff = FriendlyJet._angDiff(desired, cur);
+    let ang = cur + Math.max(-maxTurn, Math.min(maxTurn, diff));
+    // Terrain guard: never dive below the deck chasing a low target.
+    const floor = (CONFIG.world.height - CONFIG.groundHeight) * 0.88;
+    if (this.y > floor && Math.sin(ang) > 0) ang = level;
+    this.vx = Math.cos(ang) * cfg.jetSpeed;
+    this.vy = Math.sin(ang) * cfg.jetSpeed;
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+
+    if ((this.dir > 0 && this.x > this.exitX) || (this.dir < 0 && this.x < this.exitX)) {
+      this.dead = true;
+      return null;
+    }
+    if (!t) return null;
+    this.fireTimer -= dt;
+    if (this.fireTimer > 0) return null;
+    // The rail fires when the target is inside the window ahead AND the nose
+    // is on the line — or the target is dead / slipping behind (last chance:
+    // loose the round now and let it correct rather than waste the pass).
+    const ahead = (t.x - this.x) * this.dir;
+    if (!t.dead && ahead > cfg.fireRange) return null;
+    if (!t.dead && ahead > 0) {
+      const noseErr = Math.abs(
+        FriendlyJet._angDiff(Math.atan2(t.y - this.y, t.x - this.x), ang)
+      );
+      if (noseErr > (cfg.aimToleranceDeg * Math.PI) / 180) return null;
+    }
+    this.rack.shift();
+    this.fireTimer = rand(cfg.fireGap[0], cfg.fireGap[1]);
+    return t;
   }
 }
 

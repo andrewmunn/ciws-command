@@ -22,6 +22,10 @@ export const STRINGS = {
       'the laser burns down what gets close.',
     ],
     [
+      'AIRSTRIKE',
+      'Buy an F-16 strike package in the armory, then press SPACE to scramble the flight when the sky gets crowded.',
+    ],
+    [
       'ARMORY',
       'Between waves, spend credits on upgrades to protect your cities.',
     ],
@@ -30,7 +34,7 @@ export const STRINGS = {
       'Protect six cities. One hit on the CIWS gun ends the run.',
     ],
   ],
-  keysHint: 'P pause     R restart     M mute',
+  keysHint: 'SPACE airstrike     P pause     R restart     M mute',
   deploy: 'CLICK OR PRESS SPACE TO DEPLOY',
 
   // --- Touch / mobile variants ----------------------------------------------
@@ -41,7 +45,13 @@ export const STRINGS = {
       'AIM',
       'Drag on the fire-control pad below the field to lay the gun — your thumb never covers the action.',
     ],
+    // Replaces the AIRSTRIKE row of HOW TO PLAY on touch devices.
+    howToStrike: [
+      'AIRSTRIKE',
+      'Buy an F-16 strike package in the armory, then tap the STRIKE button when the sky gets crowded.',
+    ],
     padLabel: 'FIRE CONTROL',
+    strike: '✈ F-16 STRIKE', // on-screen airstrike trigger (shown when armed)
   },
   // Shown instead of `deploy` when a saved run is waiting to be resumed.
   menu: {
@@ -63,6 +73,8 @@ export const STRINGS = {
     laserFiring: 'LASER FIRING',
     laserCharged: 'LASER CHARGED',
     laserCharging: 'LASER CHARGING',
+    strikeReady: 'F-16 STRIKE — SPACE',
+    strikeReadyShort: 'STRIKE READY', // compact corner HUD
   },
   paused: 'PAUSED',
   pausedHint: 'press P to resume',
@@ -70,6 +82,8 @@ export const STRINGS = {
   // --- Spoken lines (Web Speech) ----------------------------------------------
   voice: {
     nukeWarning: 'Nuclear launch detected',
+    mirvNukeWarning: 'Warning. MIRV nuclear launch detected',
+    engaging: 'Engaging hostiles', // the strike flight checks in
   },
 
   // --- Game over ---------------------------------------------------------------
@@ -106,6 +120,9 @@ export const STRINGS = {
     buy: (cost) => `BUY — ${cost} cr`,
     buyMaxed: 'MAXED OUT',
     buyOwned: 'OWNED',
+    armed: 'ARMED', // a strike package is in the rack
+
+
 
     items: {
       interceptor: {
@@ -142,11 +159,12 @@ export const STRINGS = {
       },
       laser: {
         label: 'Laser Turret',
-        desc: 'Autonomous beam — zaps drones & plain RVs',
+        desc: 'Autonomous beam — burns down whatever flies lowest',
         info:
-          'An autonomous beam emplacement left of the gun. It tracks ' +
-          'the lowest drone or RV in range and burns it down — weaker at ' +
-          'long range, and it cannot depress below ~15°.',
+          'An autonomous beam emplacement left of the gun. It tracks the ' +
+          'lowest visible threat in range and burns it down — armoured ' +
+          'targets take a longer, committed burn, output is weaker at long ' +
+          'range, and it cannot depress below ~5°.',
       },
       laserRecharge: {
         label: (level) => `Laser Recharge (Lv ${level})`,
@@ -161,15 +179,17 @@ export const STRINGS = {
         labelMax: 'Upgrade Fire Rate',
         desc: 'Faster CIWS cycle rate',
         info:
-          'Spins the CIWS barrell faster for a denser bullet stream — compounds with Twin Barrels.',
+          'Spins the CIWS barrel faster for a denser bullet stream — each level compounds on the last.',
       },
-      twin: {
-        label: 'Twin Barrels',
-        desc: 'Add a 2nd barrel — double the rounds',
-        descOwned: 'Dual side-by-side cannons',
+      airstrike: {
+        label: 'F-16 Strike Package',
+        desc: 'SPACE: a flight of F-16s engages every threat in the sky',
+        descArmed: 'In the rack — press SPACE mid-wave to scramble',
         info:
-          'Mounts a second gatling cluster. ' +
-          'sends two rounds flying side by side — double the bullet density.',
+          'Racks one airstrike. Call it mid-wave and one F-16 per two threats ' +
+          'sweeps in on its own intercept course, each firing two air-to-air ' +
+          'missiles — one per enemy. One package at a time; an unused package ' +
+          'carries to the next wave.',
       },
     },
   },
@@ -186,6 +206,7 @@ export const STRINGS = {
     bomber: 'BOMBER',
     glidebomb: 'GLIDE BOMB',
     nuke: 'NUKE',
+    mirvnuke: 'MIRV NUKE',
   },
 
   // --- Secret dev console (backquote `) ------------------------------------
@@ -194,7 +215,7 @@ export const STRINGS = {
     hint: 'click a row or press its key — ` or ESC closes',
     badge: 'DEV', // on-screen tag while god mode / a sandbox is active
     godMode: 'God mode — cities & gun are invincible',
-    loadout: 'Sandbox loadout — start with interceptor + laser',
+    loadout: 'Sandbox loadout — interceptor + laser + auto-rearming airstrike',
     touchControls: 'Touch controls — fire-control pad below the field',
     exitSandbox: 'Exit sandbox (back to menu)',
     on: 'ON',
@@ -209,6 +230,7 @@ export const STRINGS = {
       evasive: 'Evasive RVs',
       mirvs: 'MIRV buses',
       nukes: 'Nukes on a loop',
+      mirvnukes: 'MIRV nukes — fast bus, triple warheads',
       rain: 'Normal RV rain',
     },
   },

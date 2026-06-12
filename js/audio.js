@@ -45,8 +45,39 @@ class Sfx {
       this.master.connect(limiter).connect(this.ctx.destination);
       this.noiseBuffer = this._makeNoise(0.5);
       this._buildReverb();
+      this._startWind();
     } catch (e) {
       this.ctx = null; // audio simply disabled if unavailable
+    }
+  }
+
+  /**
+   * Faint looping wind bed for battlefield ambience: looped noise through a
+   * slowly-wandering lowpass (an LFO drifts the cutoff so it breathes like
+   * gusts rather than sitting on one static hiss). Runs for the whole session
+   * at very low level; the mute toggle silences it with everything else.
+   */
+  _startWind() {
+    try {
+      const src = this.ctx.createBufferSource();
+      src.buffer = this._makeNoise(2.0);
+      src.loop = true;
+      const filt = this.ctx.createBiquadFilter();
+      filt.type = 'lowpass';
+      filt.frequency.value = 240;
+      filt.Q.value = 0.7;
+      const lfo = this.ctx.createOscillator();
+      lfo.frequency.value = 0.09; // a slow gust cycle
+      const lfoGain = this.ctx.createGain();
+      lfoGain.gain.value = 130; // cutoff wanders 110..370 Hz
+      lfo.connect(lfoGain).connect(filt.frequency);
+      const g = this.ctx.createGain();
+      g.gain.value = 0.018;
+      src.connect(filt).connect(g).connect(this.master);
+      src.start();
+      lfo.start();
+    } catch (e) {
+      // no wind — the battle still sounds fine
     }
   }
 
@@ -236,6 +267,8 @@ class Sfx {
    *   mirv       — armoured bus: metallic clang and a heavy double thump.
    *   cruise     — turbine whine dying + fuel-tank whump.
    *   drone      — electric fizzle and a sad little pop.
+   *   bomber     — a big airframe coming apart: deep whump, dying engine
+   *                groan falling away, long debris crackle.
    *   nuke       — the carcass blows big and hollow (no chain reaction).
    */
   kill(type = 'normal', pan = 0) {
@@ -261,6 +294,13 @@ class Sfx {
       this._tone(190, 48, 0.5, 0.42, 'sine', 0, o); // main thump
       this._tone(150, 38, 0.45, 0.3, 'sine', 0.13, o); // secondary cook-off
       this._crackle(pan, 0.07);
+    } else if (type === 'bomber') {
+      this._noise(0.06, 0.32, 'highpass', 4600, 2600, o); // structural crack
+      this._noise(0.5, 0.44, 'lowpass', 1500, 140, { pan, verb: 0.5 }); // fuel whump
+      this._tone(180, 42, 0.55, 0.4, 'sine', 0, o); // heavy main thump
+      this._warble(360, 60, 0.7, 0.2, pan); // engines groaning down
+      this._crackle(pan, 0.09);
+      this._crackle(pan, 0.06); // a long shower of burning debris
     } else if (type === 'evasive') {
       this._warble(900, 180, 0.38, 0.2, pan); // guidance whine spins down
       this._noise(0.16, 0.3, 'bandpass', 1600, 420, o);
@@ -351,15 +391,98 @@ class Sfx {
     this._noise(0.55, 0.1, 'highpass', 4200, 1800, { pan });
   }
 
-  /** Interceptor warhead detonation (punchy area burst). */
-  interceptorBoom(pan = 0) {
+  /**
+   * Interceptor warhead detonation (punchy area burst). `small` is the AAM's
+   * lighter warhead: same character, less weight, no debris crackle.
+   */
+  interceptorBoom(pan = 0, small = false) {
     if (!this.ready) return;
-    const o = { pan, verb: 0.4 };
-    this._noise(0.04, 0.3, 'highpass', 5200, 3200, o); // initial crack
-    this._noise(0.3, 0.32, 'lowpass', 2200, 300, o);
-    this._tone(260, 70, 0.3, 0.3, 'triangle', 0, o);
-    this._tone(90, 34, 0.5, 0.26, 'sine', 0.02, o); // sub thump
-    this._crackle(pan);
+    const k = small ? 0.6 : 1;
+    const o = { pan, verb: small ? 0.3 : 0.4 };
+    this._noise(0.04, 0.3 * k, 'highpass', 5200, 3200, o); // initial crack
+    this._noise(0.3 * k, 0.32 * k, 'lowpass', 2200, 300, o);
+    this._tone(260, 70, 0.3 * k, 0.3 * k, 'triangle', 0, o);
+    this._tone(90, 34, 0.5 * k, 0.26 * k, 'sine', 0.02, o); // sub thump
+    if (!small) this._crackle(pan);
+  }
+
+  /**
+   * The airstrike arrives: a flight of jets sweeping across the field. A long
+   * turbine roar whose pan tracks the pass direction (the closest thing to a
+   * doppler flyby a synth can cheaply sell), with an afterburner low end.
+   */
+  airstrike(dir = 1) {
+    if (!this.ready) return;
+    const t = this.ctx.currentTime;
+    const dur = 2.6;
+    // Turbine roar body, swelling in and fading as the flight exits.
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.noiseBuffer;
+    src.loop = true;
+    const filt = this.ctx.createBiquadFilter();
+    filt.type = 'bandpass';
+    filt.Q.value = 1.1;
+    filt.frequency.setValueAtTime(300, t);
+    filt.frequency.exponentialRampToValueAtTime(900, t + dur * 0.45); // approach
+    filt.frequency.exponentialRampToValueAtTime(260, t + dur); // receding
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.34, t + dur * 0.4);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    let node = g;
+    if (this.ctx.createStereoPanner) {
+      const p = this.ctx.createStereoPanner();
+      const w = CONFIG.audio.panWidth;
+      p.pan.setValueAtTime(-dir * w, t); // enters from the launch side...
+      p.pan.linearRampToValueAtTime(dir * w, t + dur); // ...and crosses over
+      g.connect(p);
+      node = p;
+    }
+    node.connect(this.master);
+    const send = this.ctx.createGain();
+    send.gain.value = 0.3;
+    if (this.reverb) g.connect(send).connect(this.reverb);
+    src.connect(filt).connect(g);
+    src.start(t);
+    src.stop(t + dur + 0.05);
+    // Afterburner low end under the roar.
+    this._tone(70, 130, dur * 0.5, 0.16, 'sawtooth', 0.2);
+    this._tone(130, 55, dur * 0.5, 0.14, 'sawtooth', 0.2 + dur * 0.5);
+  }
+
+  /**
+   * The flight arrives supersonic: a hard double crack — the bow and tail
+   * shocks of the N-wave — followed by a rolling rumble off the terrain.
+   */
+  sonicBoom(pan = 0) {
+    if (!this.ready) return;
+    const o = { pan, verb: 0.5 };
+    this._noise(0.045, 0.5, 'lowpass', 3200, 700, o); // bow shock crack
+    this._noise(0.045, 0.42, 'lowpass', 2800, 600, { pan, verb: 0.5, delay: 0.07 }); // tail shock
+    this._tone(95, 30, 0.5, 0.4, 'sine', 0.02, o); // body of the boom
+    this._noise(0.7, 0.18, 'lowpass', 700, 90, { pan, verb: 0.6, delay: 0.12 }); // rolling rumble
+  }
+
+  /** An AAM snaps off the rail: a short, sharp motor whoosh. */
+  aamLaunch(pan = 0) {
+    if (!this.ready) return;
+    const o = { pan, verb: 0.2 };
+    this._noise(0.3, 0.22, 'bandpass', 1400, 3400, o); // motor lighting up
+    this._tone(420, 1300, 0.22, 0.1, 'sawtooth', 0, o); // rising as it departs
+  }
+
+  /** A MIRV nuke bus splits: a hard pyro clunk, then three quick releases. */
+  mirvSeparation(pan = 0) {
+    if (!this.ready) return;
+    const o = { pan, verb: 0.35 };
+    this._tone(300, 90, 0.12, 0.3, 'square', 0, o); // separation charge
+    this._noise(0.18, 0.26, 'lowpass', 1600, 300, o);
+    for (let i = 0; i < 3; i++) {
+      this._noise(0.08, 0.14, 'bandpass', 2200, 900, {
+        pan: pan + (i - 1) * 0.15,
+        delay: 0.16 + i * 0.09, // one whoosh per warhead fanning out
+      });
+    }
   }
 
   /** Tried to launch with no lock / no interceptors left, or can't afford. */

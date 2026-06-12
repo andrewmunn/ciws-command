@@ -50,7 +50,8 @@ marked with a DEV badge and never touch the high-score table.
 | Input | Action |
 |-------|--------|
 | Mouse move | Aim the CIWS — it fires on its own while threats are inbound |
-| Touch (mobile) | Drag on the **fire-control pad** below the field — a radar repeater with absolute aim mapping, so your thumb never covers the action (touching the field directly also aims) |
+| `Space` (in play) | **Call the F-16 airstrike** (when a strike package is racked) |
+| Touch (mobile) | Drag on the **fire-control pad** below the field — a radar repeater with absolute aim mapping, so your thumb never covers the action (touching the field directly also aims). An on-screen **F-16 STRIKE** button appears above the pad while a package is racked |
 | `P` | Pause / resume |
 | `R` | Restart |
 | `M` | Mute / unmute |
@@ -84,13 +85,36 @@ screen at the start covers all of this in-game.
   missile retasks onto the nearest valid threat (or self-destructs), and
   it detonates with an **area blast**.
 - **Laser (shop upgrade)** — a fully autonomous beam emplacement left of the
-  gun with a trainable emitter head. It picks the **lowest** drone or
-  normal-type missile in range (it can't track the fast movers), **physically
-  slews onto it**, and only then burns it down over time. It **can't depress
-  below ~15° above the horizon**, so deck-skimmers slip under its arc. Output
+  gun with a trainable emitter head. It picks the **lowest visible threat**
+  in range (anything that flies — cloaked stealth excepted; armoured targets
+  just take a longer, committed burn), **physically slews onto it**, and
+  only then burns it down over time. It **can't depress below ~5° above the
+  horizon**, so only the lowest deck-skimmers slip under its arc. Output
   **falls off with distance** — full power up close, weaker out toward its
   maximum range, beyond which it can't latch at all. After each kill it
-  recharges (~6s, upgradable to ~2s).
+  recharges (~5s, upgradable to ~1s).
+- **F-16 airstrike (once per wave)** — the panic button. Buy a **strike
+  package** in the armory, then press `Space` mid-wave (or tap the on-screen
+  STRIKE button on mobile) and **one F-16 per two visible enemies**
+  scrambles, each carrying two air-to-air missiles — **one AAM per enemy**,
+  except nukes and unsplit MIRV-nuke buses, which **count as two enemies**
+  and draw a pair of missiles **from two different jets** (two hits exactly
+  crack a MIRV-nuke bus). Every jet flies its own intercept solution: it
+  pairs two x-neighbouring
+  targets, **runs in from the side far from them** (a close-side entry would
+  over-fly the pair before the rail is in parameters), enters at the
+  altitude the pair is *predicted* to occupy when it reaches firing range,
+  then **pitches its nose onto each target line** (pitch authority and turn
+  rate limited — within reason) and fires **straight off the nose** once
+  the target is in range and the nose is on the line — so the flight can
+  swarm from both sides at once, announced by a **sonic boom** and an
+  *"Engaging hostiles"* radio call. AAMs fly the same honest guidance as
+  interceptors — smaller, born fast, with the seeker live immediately (no
+  cold-launch climb gate) and the interceptor's solid-motor plume at
+  reduced scale (the jets themselves fly clean) — but turn-rate-limited and
+  energy-bleeding, so they can still miss a hard-jinking target. One
+  package in the rack at a time; an **unused package carries over** to the
+  next wave. Calling it on an empty sky is denied (the package is kept).
 
 ### Economy & shop
 
@@ -99,7 +123,8 @@ breakdown on the wave-clear screen:
 
 - **Kill bounties**, scaled by threat type — standard/drone/glide-bomb `1`,
   evasive `2`, hypersonic/cruise `3`, MIRV carrier/stealth/bomber `4` (split
-  MIRV children pay the standard rate), nuke `12`.
+  MIRV children pay the standard rate), MIRV-nuke bus `10` (its released
+  warheads `5` each), nuke `12`.
 - **All-clear bonus** for destroying *every* enemy that wave (nothing leaked).
 - **Cities saved** — per surviving city.
 
@@ -112,8 +137,8 @@ Space to continue. Every ladder runs deep enough to soak late-game credits:
 | Interceptor Battery / Reload | Field the auto-launcher (cheap!), then shorten its cooldown, 6s → 1s (multi-level) |
 | Gun Shield / Shield Recharge | Fit a dome on the CIWS that absorbs one warhead, then buy down its recharge (multi-level) |
 | Laser Turret / Laser Recharge | Buy the autonomous beam, then speed its recharge (multi-level) |
-| Upgrade Fire Rate | Faster CIWS cycle rate (multi-level) |
-| Twin Barrels | One-time: a second barrel firing side-by-side (2× rounds) |
+| Upgrade Fire Rate | Faster CIWS cycle rate (7 levels — each compounds on the last) |
+| F-16 Strike Package | One airstrike in the rack; `Space` calls it mid-wave (unused packages carry over) |
 
 The **Gun Shield** (a regular shop item) fits a dome over the CIWS that
 **intercepts one warhead on contact** — the missile detonates against the dome
@@ -164,13 +189,14 @@ Prices, amounts and earnings live in `config.economy`, `config.shop`, and
 |--------|---------|-----------|
 | Standard RV (red) | wave 1+ | Straight dive toward a structure; 1 hit |
 | Drone swarm (gray, squat) | wave 2+ | Five low gliders from one screen edge (counts as one wave slot), each with its own target; 1 hit each |
-| Evasive RV (purple) | wave 2+ | Weaves on an irregular path; 1 hit |
+| Evasive RV (purple) | wave 2+ | Fast (1.35× base) and **jinks with real maneuvering physics**: a constant-g lateral pull that reverses on an irregular timer, carving banked S-turns inside a bounded leash; 1 hit |
 | MIRV bus (green, large) | wave 3+ | Armoured (3 hits); splits into red RVs at altitude |
 | Cruise missile (gold) | wave 3+ | Enters from a screen edge at low altitude, pops up, then dives; 2 hits |
 | Bomber (bronze, Su-27 silhouette) | wave 4+ | Crosses fast at mid altitude dropping 2–3 **glide bombs** (1 hit each — yes, you can shoot down glide bombs; real ones get intercepted too). The pilot **flies defensively**: he weaves whenever a homing round is hunting him *or his own decoy*, **punches out flare bursts** that can seduce the seeker, pulls **high-g S-breaks** when the round closes, and weaves out of incoming **CIWS streams** — all under honest energy physics (total speed stays near cruise; a pull pitches the flight path, it doesn't add free velocity). **Forcing a bomber to jink aborts its bombing run for good** — suppression is a mission kill. About 40% survive a full defensive engagement. Killing the bomber pays 4 but it exits without leaking if you let it go; 3 hits |
 | Hypersonic (orange dart) | wave 4+ | Very fast and barely slows in the dense air; 1 hit but hard to track |
 | Stealth cruise (pale, ghostly) | wave 6+ | Flies the cruise profile **cloaked** — invisible, silent, no lock-on, no laser — until its pop-up; a blind CIWS sweep can still clip it; 2 hits |
 | Nuke (crimson, huge) | wave 5+ | Announced by a klaxon and a **"Nuclear launch detected"** voice; never the first or last threat of a wave, and the per-wave cap **keeps climbing** in later waves (one at wave 5, two at 8, three at 11...). Full ballistic speed and **heavily armoured** (30 hits — a single interceptor barely dents it). Targets **inner cities** and **air-bursts** above them, leveling the target **and both neighbours** — including the CIWS if it's next door — then a mushroom cloud climbs |
+| MIRV nuke (hot pink, huge) | wave 9+ | The very-late-game capstone, with its own warning voice. The bus comes in **1.5× faster than a nuke but far less armoured** (10 hits) — kill it before the split and the whole attack dies. Let it split and **three small warheads fan out onto three different cities**, each a fast little air-bursting nuke (3 hits, smaller yield: it levels only the city under it) |
 
 A non-killing hit on the armoured MIRV flashes it white with a metallic ting —
 chip it down with the gun, or pop the whole bus with one interceptor before it
@@ -217,8 +243,8 @@ fully offline.
 | `js/strings.js` | **All user-facing text** — menus, HUD, armory copy |
 | `js/utils.js` | Math helpers (clamp, rand, distance, array culling) |
 | `js/physics.js` | Altitude-based air-density model + quadratic drag helper |
-| `js/entities.js` | `City`, `Turret`, `Bullet`, `EnemyMissile`, `Interceptor`, `Flare`, `Particle` (data + update, no draw) |
-| `js/weapons.js` | `CIWSWeapon`, `InterceptorWeapon`, `LaserWeapon` — stats, upgrades, fire logic |
+| `js/entities.js` | `City`, `Turret`, `Bullet`, `EnemyMissile`, `Interceptor` (also flies the AAM), `FriendlyJet`, `Flare`, `Particle` (data + update, no draw) |
+| `js/weapons.js` | `CIWSWeapon`, `InterceptorWeapon`, `LaserWeapon`, `AirstrikeWeapon` — stats, upgrades, fire logic |
 | `js/scores.js` | Local high-score table (localStorage, injectable for tests) |
 | `js/save.js` | Run checkpoint save slot (localStorage, injectable for tests) |
 | `js/audio.js` | Procedural Web Audio SFX + speech announcements (singleton `sfx`) |

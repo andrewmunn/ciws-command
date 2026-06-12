@@ -45,25 +45,14 @@ describe('CIWSWeapon', () => {
     }
   });
 
-  it('twin upgrade fires two parallel rounds', () => {
+  it('fire-rate upgrades shorten the interval, one factor per level', () => {
     const w = new CIWSWeapon();
-    w.upgradeTwin();
-    expect(w.barrels).toBe(2);
-    const t = new Turret(100, G);
-    t.angle = -Math.PI / 2; // straight up; barrels offset horizontally
-    const shots = w.fireFrom(t);
-    expect(shots).toHaveLength(2);
-    expect(Math.abs(shots[0].x - shots[1].x)).toBeCloseTo(CONFIG.turret.twinSpacing, 5);
-  });
-
-  it('twin gun with a single round left fires just one', () => {
-    const w = new CIWSWeapon();
-    w.upgradeTwin();
-    const t = new Turret(100, G);
-    t.ammo = 1;
-    const shots = w.fireFrom(t);
-    expect(shots).toHaveLength(1);
-    expect(t.ammo).toBe(0);
+    const base = w.fireInterval;
+    for (let i = 0; i < CONFIG.shop.fireRateCosts.length; i++) w.upgradeFireRate();
+    expect(w.fireInterval).toBeCloseTo(
+      base * Math.pow(CONFIG.shop.fireRateFactor, CONFIG.shop.fireRateCosts.length),
+      9
+    );
   });
 
   it('reloads living turrets to capacity but not dead ones', () => {
@@ -153,17 +142,20 @@ describe('LaserWeapon', () => {
     expect(w.canFire).toBe(true);
   });
 
-  it('only engages drones and normal-type missiles', () => {
+  it('engages every live threat type (only the dead are off the menu)', () => {
     const w = new LaserWeapon();
     const mk = (type, splits = 0) => ({ dead: false, type, splitsRemaining: splits });
-    expect(w.canTarget(mk('drone'))).toBe(true);
-    expect(w.canTarget(mk('normal'))).toBe(true);
+    for (const type of ['drone', 'normal', 'evasive', 'hypersonic', 'cruise', 'bomber', 'nuke', 'mirvnuke', 'glidebomb']) {
+      expect(w.canTarget(mk(type))).toBe(true);
+    }
     expect(w.canTarget(mk('normal', 3))).toBe(true); // MIRV carrier: a long burn
-    expect(w.canTarget(mk('evasive'))).toBe(false);
-    expect(w.canTarget(mk('hypersonic'))).toBe(false);
-    expect(w.canTarget(mk('cruise'))).toBe(false);
-    expect(w.canTarget(mk('nuke'))).toBe(false);
     expect(w.canTarget({ dead: true, type: 'drone', splitsRemaining: 0 })).toBe(false);
+  });
+
+  it('starts on a 5-second recharge', () => {
+    const w = new LaserWeapon();
+    w.buy();
+    expect(w.rechargeTime).toBe(5);
   });
 
   it('recharge upgrades shorten the cycle and clamp at the floor', () => {
