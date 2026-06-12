@@ -130,15 +130,17 @@ export class Renderer {
 
   // -- static environment ---------------------------------------------------
   _buildEnvironment() {
-    // Sky gradient as the scene background.
+    // Sky gradient as the scene background (fallback behind the tissue plane).
     this.scene.background = this._gradientTexture(COL.sky[0], COL.sky[1]);
+    this._buildTissueBackdrop();
 
-    // Lights: cool ambient + a key directional for shading the extruded shapes.
-    this.scene.add(new THREE.AmbientLight(0x35506e, 1.1));
-    const key = new THREE.DirectionalLight(0xbcd8ff, 1.5);
+    // Lights: warm rose ambient + a soft key directional for shading the
+    // organic shapes — the whole scene reads as a backlit, fleshy interior.
+    this.scene.add(new THREE.AmbientLight(0x5a1d2e, 1.2));
+    const key = new THREE.DirectionalLight(0xffd0d8, 1.5);
     key.position.set(-0.5, 1.0, 0.8);
     this.scene.add(key);
-    const fill = new THREE.DirectionalLight(0xff8866, 0.4);
+    const fill = new THREE.DirectionalLight(0xff5fa0, 0.5);
     fill.position.set(0.6, 0.2, 0.5);
     this.scene.add(fill);
 
@@ -161,7 +163,7 @@ export class Renderer {
     // Field boundaries: opaque dark wings just outside the play area (so
     // side-entering threats emerge from behind them instead of popping into
     // existence) plus a glowing vertical edge line marking each boundary.
-    const wingMat = new THREE.MeshBasicMaterial({ color: 0x05070d });
+    const wingMat = new THREE.MeshBasicMaterial({ color: 0x140307 });
     const edgeLineMat = new THREE.MeshBasicMaterial({ color: COL.groundLine });
     for (const side of [-1, 1]) {
       const wing = new THREE.Mesh(new THREE.PlaneGeometry(2400, 7000), wingMat);
@@ -197,11 +199,13 @@ export class Renderer {
     haze.position.set(0, 130, -60);
     this.scene.add(haze);
 
-    // Starfield (two additive layers far back whose brightness drifts out of
-    // phase, so the sky twinkles gently rather than sitting static).
+    // Drifting motes: soft cells and debris suspended in the fluid, two
+    // additive layers (cream + rose) whose brightness drifts out of phase so
+    // the medium shimmers gently rather than sitting static.
     this.starMats = [];
+    const moteColors = [0xffe2d0, 0xff9fc0];
     for (let layer = 0; layer < 2; layer++) {
-      const starCount = 450;
+      const starCount = 360;
       const sp = new Float32Array(starCount * 3);
       for (let i = 0; i < starCount; i++) {
         sp[i * 3] = (Math.random() - 0.5) * 6000;
@@ -211,12 +215,12 @@ export class Renderer {
       const starGeo = new THREE.BufferGeometry();
       starGeo.setAttribute('position', new THREE.BufferAttribute(sp, 3));
       const mat = new THREE.PointsMaterial({
-        color: 0xbcd6ff,
-        size: 3,
+        color: moteColors[layer],
+        size: layer === 0 ? 5 : 8, // soft, blobby — not pin-prick stars
         sizeAttenuation: false,
         transparent: true,
-        opacity: 0.7,
-        map: this._dotTexture(),
+        opacity: 0.4,
+        map: this._softTexture(),
         depthWrite: false,
       });
       this.starMats.push(mat);
@@ -224,6 +228,93 @@ export class Renderer {
       stars.frustumCulled = false;
       this.scene.add(stars);
     }
+  }
+
+  /**
+   * Animated organic-tissue backdrop: a domain-warped Voronoi (cellular) field
+   * that slowly oozes, drawn as a camera-locked plane behind everything. It
+   * never writes depth and sorts first, so it always reads as a far wall of
+   * living flesh regardless of camera tilt / shake / aspect.
+   */
+  _buildTissueBackdrop() {
+    this.scene.add(this.camera); // so the attached plane gets a world matrix
+    const mat = new THREE.ShaderMaterial({
+      uniforms: {
+        uTime: { value: 0 },
+        uScale: { value: 5.5 }, // cell count across the view (bigger = fewer)
+        uAspect: { value: 1 },
+        uColA: { value: new THREE.Color(0x270912) }, // deep tissue shadow
+        uColB: { value: new THREE.Color(0x7c1730) }, // lit lobule
+        uColEdge: { value: new THREE.Color(0xff6f9a) }, // glowing capillary wall
+      },
+      depthTest: false,
+      depthWrite: false,
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }`,
+      fragmentShader: `
+        precision highp float;
+        varying vec2 vUv;
+        uniform float uTime;
+        uniform float uScale;
+        uniform float uAspect;
+        uniform vec3 uColA;
+        uniform vec3 uColB;
+        uniform vec3 uColEdge;
+        vec2 hash2(vec2 p) {
+          p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
+          return fract(sin(p) * 43758.5453);
+        }
+        // Slow domain warp so the cells bulge and curve rather than tile flat.
+        vec2 warp(vec2 p) {
+          float t = uTime * 0.25;
+          p += 0.35 * vec2(sin(p.y * 1.3 + t), cos(p.x * 1.1 - t * 0.9));
+          p += 0.18 * vec2(sin(p.y * 2.7 - t * 1.4), cos(p.x * 2.3 + t * 1.1));
+          return p;
+        }
+        // F1 (nearest), F2 (second nearest) distances + a per-cell random id.
+        vec3 voronoi(vec2 x) {
+          vec2 n = floor(x);
+          vec2 f = fract(x);
+          float f1 = 8.0, f2 = 8.0, id = 0.0;
+          for (int j = -1; j <= 1; j++) {
+            for (int i = -1; i <= 1; i++) {
+              vec2 g = vec2(float(i), float(j));
+              vec2 h = hash2(n + g);
+              vec2 o = 0.5 + 0.5 * sin(uTime * 0.5 + 6.2831 * h); // points ooze
+              vec2 r = g + o - f;
+              float d = dot(r, r);
+              if (d < f1) { f2 = f1; f1 = d; id = h.x; }
+              else if (d < f2) { f2 = d; }
+            }
+          }
+          return vec3(sqrt(f1), sqrt(f2), id);
+        }
+        void main() {
+          vec2 p = vec2(vUv.x * uAspect, vUv.y) * uScale;
+          p = warp(p);
+          vec3 v = voronoi(p);
+          float edge = v.y - v.x;                         // gap between cells
+          float membrane = 1.0 - smoothstep(0.0, 0.07, edge); // thin bright wall
+          float interior = smoothstep(0.0, 0.75, v.x);    // cells bulge outward
+          vec3 col = mix(uColA, uColB, 0.35 + 0.65 * v.z);
+          col *= 0.5 + 0.7 * interior;
+          col = mix(col, uColEdge, membrane * 0.7);
+          col *= 0.78 + 0.22 * vUv.y;                      // darker toward the top
+          gl_FragColor = vec4(col, 1.0);
+        }`,
+    });
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat);
+    mesh.position.z = -100; // local: straight ahead of the camera
+    mesh.renderOrder = -1000; // drawn first, behind all world geometry
+    mesh.frustumCulled = false;
+    this.camera.add(mesh);
+    this._tissueMat = mat;
+    this._tissueMesh = mesh;
+    this._tissueDist = 100;
   }
 
   /** Vertical white→transparent gradient (alpha in the texture). */
@@ -395,9 +486,10 @@ export class Renderer {
     this._buildMissileMeshes();
     this._buildSideEntrantMeshes();
     this.missileTrailSys = this._makeLines(R.maxMissiles * CONFIG.missile.trailMaxPoints * 3);
-    // 2 segments per tracer: GL lines are stuck at 1px, so each round is
-    // drawn as a parallel pair straddling its true path for a ~2px tracer.
+    // Each mucus round is a dim, stretchy filament (the line pair) capped by a
+    // fat soft droplet (a halo + a denser core in the glob cloud).
     this.bulletSys = this._makeLines(R.maxBullets * 2);
+    this.bulletGlobs = this._makeCloud(R.maxBullets * 2, THREE.AdditiveBlending, true);
     this._buildInterceptorMeshes();
     this.interceptorTrailSys = this._makeLines(
       R.maxInterceptors * CONFIG.interceptor.trailMaxPoints
@@ -480,20 +572,19 @@ export class Renderer {
       varying vec2 vP;
       void main() {
         float r = length(vP);
-        // Compression front: a thin gaussian band that widens and softens as
-        // it travels outward.
-        float w = 0.06 + 0.13 * uProg;
+        // A bursting sac: translucent cytoplasm fills the interior and drains
+        // outward as the cell ruptures.
+        float fill = smoothstep(uProg, uProg * 0.2, r) * 0.32 * (1.0 - uProg * 0.5);
+        // Gooey membrane rim — a soft band that swells and thins as it bursts.
+        float w = 0.10 + 0.20 * uProg;
         float d = (r - uProg) / w;
-        float front = exp(-d * d);
-        // Faint trailing ripple — the reflected/secondary pulse.
-        float d2 = (r - uProg * 0.6) / (w * 2.2);
-        float trail = exp(-d2 * d2) * 0.28;
-        // Interior heat-haze that empties out behind the wave.
-        float haze = smoothstep(uProg, uProg * 0.15, r) * 0.12 * (1.0 - uProg);
-        float a = (front + trail + haze) * uFade * step(r, 1.0);
-        // Clearly tinted by the kill color, with a white-hot leading edge so
-        // it still reads as a pressure wave rather than flat pigment.
-        vec3 col = mix(uColor, vec3(1.0), front * 0.45);
+        float rim = exp(-d * d);
+        // Faint trailing wisp of spilled fluid behind the rim.
+        float d2 = (r - uProg * 0.55) / (w * 2.4);
+        float trail = exp(-d2 * d2) * 0.22;
+        float a = (fill + rim * 0.85 + trail) * uFade * step(r, 1.0);
+        // Mostly the kill tint, with a soft (not white-hot) bright membrane.
+        vec3 col = mix(uColor, vec3(1.0), rim * 0.32);
         gl_FragColor = vec4(col * a, a);
       }`;
     this.explosionPool = [];
@@ -506,9 +597,9 @@ export class Renderer {
       });
       const flash = new THREE.Sprite(flashMat);
       flash.visible = false;
-      // Hot white core inside the colored flash, so the centre blows out.
+      // Soft warm core inside the colored flash — a wet glow, not a flashbang.
       const coreMat = flashMat.clone();
-      coreMat.color.set(0xffffff);
+      coreMat.color.set(0xffeede);
       const core = new THREE.Sprite(coreMat);
       core.visible = false;
       const shockMat = new THREE.ShaderMaterial({
@@ -558,7 +649,7 @@ export class Renderer {
         const coreR = flashR * 0.3;
         slot.core.position.set(x, y, 5);
         slot.core.scale.set(coreR * 2, coreR * 2, 1);
-        slot.coreMat.opacity = Math.pow(1 - k / 0.3, 2) * 0.85;
+        slot.coreMat.opacity = Math.pow(1 - k / 0.3, 2) * 0.6;
       }
 
       // Overpressure wave: the quad spans the blast radius exactly; the
@@ -577,8 +668,9 @@ export class Renderer {
   }
 
   _buildInterceptorMeshes() {
-    // Friendly homing missiles: a small bright-blue cone, nose along velocity.
-    this._interceptorGeo = new THREE.ConeGeometry(4, 16, 10);
+    // Friendly antibodies: a soft, slightly lumpy immune-cell blob that homes
+    // onto a swimmer and bursts. Roundish, so it needs no heading.
+    this._interceptorGeo = new THREE.IcosahedronGeometry(6, 1);
     this.interceptorMeshes = [];
     for (let i = 0; i < R.maxInterceptors; i++) {
       const mat = new THREE.MeshStandardMaterial({
@@ -597,10 +689,11 @@ export class Renderer {
   }
 
   /**
-   * Distinct airframes for the side-entrants (nose along +X; each slot keeps
-   * one shared material so type colour / hit flashes are per-slot tints):
-   *   drone  — small fixed-wing UAV: fuselage, broad main wing, tail fin.
-   *   cruise — Tomahawk-style: tube body, nose cone, pop-out wings, tail.
+   * Organic swimmers for the side-entrants (head leads along +X; each slot
+   * keeps one shared material so type colour / hit flashes are per-slot tints):
+   *   drone  — a tiny sperm cell: ovoid head + a short tapering tail.
+   *   bomber — a big swimmer: large head, thick midpiece, long tail.
+   *   cruise — a slim swimmer hugging the wall: ovoid head + slender tail.
    */
   _buildSideEntrantMeshes() {
     const makeMat = () =>
@@ -608,118 +701,47 @@ export class Renderer {
         color: COL.missileDrone,
         emissive: COL.missileDrone,
         emissiveIntensity: 0.9,
-        roughness: 0.4,
-        metalness: 0.4,
+        roughness: 0.45,
+        metalness: 0.1,
       });
 
-    this.droneMeshes = [];
-    for (let i = 0; i < 24; i++) {
+    // A swimmer built nose-first along +X: a flattened ovoid head and a
+    // tapering flagellum trailing behind it. Returns a hidden, cull-exempt
+    // Group carrying its shared material on userData.mat.
+    const makeSwimmer = (headR, headLen, tailLen, tailR) => {
       const mat = makeMat();
       const g = new THREE.Group();
-      const fuselage = new THREE.Mesh(new THREE.BoxGeometry(9, 2.4, 2.4), mat);
-      g.add(fuselage);
-      const noseGeo = new THREE.ConeGeometry(1.2, 3, 6);
-      noseGeo.rotateZ(-Math.PI / 2);
-      const nose = new THREE.Mesh(noseGeo, mat);
-      nose.position.x = 6;
-      g.add(nose);
-      const wing = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.5, 16), mat);
-      wing.position.x = 0.5;
-      g.add(wing);
-      const tailWing = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.5, 7), mat);
-      tailWing.position.x = -4;
-      g.add(tailWing);
-      const fin = new THREE.Mesh(new THREE.BoxGeometry(2.2, 3.2, 0.5), mat);
-      fin.position.set(-4, 1.8, 0);
-      g.add(fin);
+      const head = new THREE.Mesh(new THREE.SphereGeometry(headR, 16, 12), mat);
+      head.scale.set(headLen, 1, 0.66); // long and flattened side-on
+      head.position.x = headR * (headLen - 0.5);
+      g.add(head);
+      const tailGeo = new THREE.CylinderGeometry(tailR, tailR * 0.2, tailLen, 8);
+      tailGeo.rotateZ(Math.PI / 2);
+      tailGeo.translate(-tailLen / 2, 0, 0);
+      g.add(new THREE.Mesh(tailGeo, mat));
       g.visible = false;
       g.userData.mat = mat;
       g.traverse((o) => (o.frustumCulled = false));
       this.scene.add(g);
-      this.droneMeshes.push(g);
-    }
+      return g;
+    };
 
-    // Bomber: an Su-27-style strike fighter — long slim fuselage, drooped
-    // nose, canopy hump, swept wings, stabilators, twin engine nacelles and
-    // twin canted tail fins.
+    this.droneMeshes = [];
+    for (let i = 0; i < 24; i++) this.droneMeshes.push(makeSwimmer(2.6, 1.7, 9, 1.1));
+
     this.bomberMeshes = [];
-    for (let i = 0; i < 6; i++) {
-      const mat = makeMat();
-      const g = new THREE.Group();
-      const fuselage = new THREE.Mesh(new THREE.BoxGeometry(30, 3.6, 4.4), mat);
-      g.add(fuselage);
-      const noseGeo = new THREE.ConeGeometry(1.8, 9, 8);
-      noseGeo.rotateZ(-Math.PI / 2);
-      const nose = new THREE.Mesh(noseGeo, mat);
-      nose.position.set(19, -0.5, 0); // characteristic drooped radome
-      nose.rotation.z = -0.06;
-      g.add(nose);
-      const canopy = new THREE.Mesh(new THREE.BoxGeometry(5, 1.8, 2.6), mat);
-      canopy.position.set(9, 2.4, 0);
-      g.add(canopy);
-      // Swept main wings (two halves, raked back).
-      for (const side of [-1, 1]) {
-        const wing = new THREE.Mesh(new THREE.BoxGeometry(11, 0.7, 14), mat);
-        wing.position.set(-2, -0.6, side * 7.5);
-        wing.rotation.y = side * 0.55; // sweep
-        g.add(wing);
-        const stab = new THREE.Mesh(new THREE.BoxGeometry(6, 0.6, 7.5), mat);
-        stab.position.set(-14, -0.4, side * 4.6);
-        stab.rotation.y = side * 0.45;
-        g.add(stab);
-        // Twin tails, slightly canted outward like the real thing.
-        const fin = new THREE.Mesh(new THREE.BoxGeometry(6, 7.5, 0.7), mat);
-        fin.position.set(-12, 3.6, side * 2.8);
-        fin.rotation.x = side * 0.18;
-        fin.rotation.z = 0.35; // raked back
-        g.add(fin);
-        // Underslung engine nacelle.
-        const nacGeo = new THREE.CylinderGeometry(1.7, 1.5, 9, 8);
-        nacGeo.rotateZ(-Math.PI / 2);
-        const nacelle = new THREE.Mesh(nacGeo, mat);
-        nacelle.position.set(-11, -1.6, side * 2.4);
-        g.add(nacelle);
-      }
-      g.visible = false;
-      g.userData.mat = mat;
-      g.traverse((o) => (o.frustumCulled = false));
-      this.scene.add(g);
-      this.bomberMeshes.push(g);
-    }
+    for (let i = 0; i < 6; i++) this.bomberMeshes.push(makeSwimmer(6, 1.8, 28, 2.2));
 
     this.cruiseMeshes = [];
-    for (let i = 0; i < 12; i++) {
-      const mat = makeMat();
-      const g = new THREE.Group();
-      const bodyGeo = new THREE.CylinderGeometry(1.9, 1.9, 15, 10);
-      bodyGeo.rotateZ(-Math.PI / 2);
-      g.add(new THREE.Mesh(bodyGeo, mat));
-      const noseGeo = new THREE.ConeGeometry(1.9, 5, 10);
-      noseGeo.rotateZ(-Math.PI / 2);
-      const nose = new THREE.Mesh(noseGeo, mat);
-      nose.position.x = 10;
-      g.add(nose);
-      const wing = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.45, 12), mat);
-      wing.position.x = 1.5;
-      g.add(wing);
-      const tail = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.45, 6.5), mat);
-      tail.position.x = -6;
-      g.add(tail);
-      const fin = new THREE.Mesh(new THREE.BoxGeometry(1.4, 3, 0.45), mat);
-      fin.position.set(-6, 1.5, 0);
-      g.add(fin);
-      g.visible = false;
-      g.userData.mat = mat;
-      g.traverse((o) => (o.frustumCulled = false));
-      this.scene.add(g);
-      this.cruiseMeshes.push(g);
-    }
+    for (let i = 0; i < 12; i++) this.cruiseMeshes.push(makeSwimmer(3.2, 1.9, 15, 1.3));
   }
 
   _buildMissileMeshes() {
-    // Slender cone = reentry vehicle / warhead; the apex (+Y) is the nose, which
-    // we point along the direction of travel each frame.
-    this._coneGeo = new THREE.ConeGeometry(5.5, 24, 14);
+    // Flattened tear-drop ovoid = a sperm head; the long axis (+Y) leads, which
+    // we point along the direction of travel each frame. The lashing flagellum
+    // is the additive trail drawn behind it.
+    this._coneGeo = new THREE.SphereGeometry(6, 18, 14);
+    this._coneGeo.scale(0.82, 1.9, 0.5); // slim, long, and flattened side-on
     this.missileMeshes = [];
     for (let i = 0; i < R.maxMissiles; i++) {
       const mat = new THREE.MeshStandardMaterial({
@@ -795,31 +817,38 @@ export class Renderer {
   }
 
   _buildCity(city) {
+    // Each "city" is a clutch of ova: one soft, glowing egg cell per building
+    // slot, sized to that slot's footprint. The collapse animation in
+    // _updateStructures squashes scale.y, so the height is baked into the
+    // geometry (not mesh.scale) and the egg sits with its base on the ground.
     const group = new THREE.Group();
     const meshes = [];
-    const body = new THREE.Color(COL.city).multiplyScalar(0.3);
+    const body = new THREE.Color(COL.city).multiplyScalar(0.35);
     for (const b of city.buildings) {
       const mat = new THREE.MeshStandardMaterial({
         color: body,
         emissive: COL.city,
-        emissiveMap: this._windowTexture(Math.floor(Math.random() * 5)),
-        emissiveIntensity: 1.0,
-        roughness: 0.55,
-        metalness: 0.15,
+        emissiveIntensity: 0.95,
+        roughness: 0.3,
+        metalness: 0.0,
       });
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(b.w, b.h, 9), mat);
+      const geo = new THREE.SphereGeometry(0.5, 18, 14);
+      geo.scale(b.w * 1.05, b.h, Math.min(b.w, 20)); // plump ellipsoid cell
+      const mesh = new THREE.Mesh(geo, mat);
       mesh.position.set(b.x, b.h / 2, b.z || 0);
       mesh.userData.h = b.h;
-      // Rooftop details ride along as children so collapse squashes them too.
-      if (b.spire) {
-        const spire = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.5, 9, 5), mat);
-        spire.position.y = b.h / 2 + 4.5;
-        mesh.add(spire);
-      } else if (b.roof) {
-        const plant = new THREE.Mesh(new THREE.BoxGeometry(b.w * 0.45, 2.6, 4), mat);
-        plant.position.y = b.h / 2 + 1.3;
-        mesh.add(plant);
-      }
+      // A brighter nucleus suspended inside the translucent cell.
+      const nucleus = new THREE.Mesh(
+        new THREE.SphereGeometry(Math.min(b.w, b.h) * 0.18, 10, 8),
+        new THREE.MeshStandardMaterial({
+          color: COL.city,
+          emissive: COL.city,
+          emissiveIntensity: 1.6,
+          roughness: 0.2,
+        })
+      );
+      nucleus.position.set(0, b.h * 0.12, 4);
+      mesh.add(nucleus);
       group.add(mesh);
       meshes.push(mesh);
     }
@@ -1026,17 +1055,26 @@ export class Renderer {
       if (!group || !city) continue;
       group.position.set(this.wx(city.x), 0, 0);
       for (const mesh of group.userData.meshes) {
+        const nucleus = mesh.children[0]; // suspended core (own material)
         if (city.alive) {
           mesh.material.emissive.set(COL.city);
           mesh.material.color.copy(group.userData.body);
           mesh.material.emissiveIntensity = 1.0;
           mesh.scale.y = 1;
           mesh.position.y = mesh.userData.h / 2;
+          if (nucleus) {
+            nucleus.material.emissive.set(COL.city);
+            nucleus.material.emissiveIntensity = 1.6;
+          }
         } else {
           mesh.material.emissive.set(0x000000);
           mesh.material.color.set(COL.cityDead);
           mesh.scale.y = 0.16;
           mesh.position.y = (mesh.userData.h * 0.16) / 2;
+          if (nucleus) {
+            nucleus.material.emissive.set(0x000000);
+            nucleus.material.color.set(COL.cityDead);
+          }
         }
       }
     }
@@ -1476,36 +1514,57 @@ export class Renderer {
 
   _updateBullets(game) {
     const sys = this.bulletSys;
+    const glob = this.bulletGlobs;
     const c = this.baseColor(COL.bullet);
     const inv = CONFIG.bullet.tracerLength / CONFIG.bullet.speed;
     let seg = 0;
+    let gi = 0;
     for (const b of game.bullets) {
-      if (seg + 2 > sys.maxSeg) break;
-      // Two parallel 1px lines straddling the true path read as one ~2px
-      // tracer (offset is perpendicular to the velocity, in sim units).
       const sp = Math.hypot(b.vx, b.vy) || 1;
-      const px = (-b.vy / sp) * 0.5;
-      const py = (b.vx / sp) * 0.5;
-      const tx = b.x - b.vx * inv;
-      const ty = b.y - b.vy * inv;
-      for (let side = -1; side <= 1; side += 2) {
-        const v = seg * 6;
-        sys.pos[v] = this.wx(b.x + px * side);
-        sys.pos[v + 1] = this.wy(b.y + py * side);
-        sys.pos[v + 2] = 0;
-        sys.pos[v + 3] = this.wx(tx + px * side);
-        sys.pos[v + 4] = this.wy(ty + py * side);
-        sys.pos[v + 5] = 0;
-        sys.col[v] = c.r;
-        sys.col[v + 1] = c.g;
-        sys.col[v + 2] = c.b;
-        sys.col[v + 3] = c.r * 0.2;
-        sys.col[v + 4] = c.g * 0.2;
-        sys.col[v + 5] = c.b * 0.2;
-        seg++;
+      const hx = this.wx(b.x);
+      const hy = this.wy(b.y);
+      // A stretchy filament of goo trailing the droplet — wider and dimmer
+      // than a tracer, fading to nothing at the tail (the mucus stringing out).
+      if (seg + 2 <= sys.maxSeg) {
+        const px = (-b.vy / sp) * 0.9;
+        const py = (b.vx / sp) * 0.9;
+        const tx = b.x - b.vx * inv;
+        const ty = b.y - b.vy * inv;
+        for (let side = -1; side <= 1; side += 2) {
+          const v = seg * 6;
+          sys.pos[v] = this.wx(b.x + px * side);
+          sys.pos[v + 1] = this.wy(b.y + py * side);
+          sys.pos[v + 2] = 0;
+          sys.pos[v + 3] = this.wx(tx + px * side);
+          sys.pos[v + 4] = this.wy(ty + py * side);
+          sys.pos[v + 5] = 0;
+          sys.col[v] = c.r * 0.55;
+          sys.col[v + 1] = c.g * 0.55;
+          sys.col[v + 2] = c.b * 0.55;
+          sys.col[v + 3] = c.r * 0.04;
+          sys.col[v + 4] = c.g * 0.04;
+          sys.col[v + 5] = c.b * 0.04;
+          seg++;
+        }
+      }
+      // Fat soft droplet: a wide translucent halo + a denser inner bead, so
+      // each round reads as a wobbling glob of mucus rather than a tracer.
+      for (const [size, alpha] of [[13, 0.4], [6, 0.95]]) {
+        if (gi >= glob.max) break;
+        const o = gi * 3;
+        glob.pos[o] = hx;
+        glob.pos[o + 1] = hy;
+        glob.pos[o + 2] = 1;
+        glob.col[o] = c.r;
+        glob.col[o + 1] = c.g;
+        glob.col[o + 2] = c.b;
+        glob.size[gi] = size;
+        glob.alpha[gi] = alpha;
+        gi++;
       }
     }
     sys.setCount(seg);
+    glob.setCount(gi);
   }
 
   // -- public API -----------------------------------------------------------
@@ -1529,6 +1588,14 @@ export class Renderer {
       const k = Math.min(1, game.shakeTime / 0.25) * game.shakeMag * 0.7;
       this.camera.position.x += (Math.random() - 0.5) * 2 * k;
       this.camera.position.y += (Math.random() - 0.5) * 2 * k;
+    }
+    // Keep the tissue backdrop filling the frustum at any aspect, and ooze it.
+    if (this._tissueMesh) {
+      const fovR = (this.camera.fov * Math.PI) / 180;
+      const h = 2 * Math.tan(fovR / 2) * this._tissueDist * 1.15;
+      this._tissueMesh.scale.set(h * this.camera.aspect, h, 1);
+      this._tissueMat.uniforms.uAspect.value = this.camera.aspect;
+      this._tissueMat.uniforms.uTime.value = game.time;
     }
   }
 
@@ -1577,10 +1644,10 @@ export class Renderer {
 
     this._updateCamera(game);
 
-    // Gentle out-of-phase star twinkle.
+    // Gentle out-of-phase shimmer of the drifting motes.
     if (this.starMats) {
-      this.starMats[0].opacity = 0.55 + 0.2 * Math.sin(game.time * 1.1);
-      this.starMats[1].opacity = 0.55 + 0.2 * Math.sin(game.time * 1.7 + 2.1);
+      this.starMats[0].opacity = 0.34 + 0.14 * Math.sin(game.time * 1.1);
+      this.starMats[1].opacity = 0.3 + 0.14 * Math.sin(game.time * 1.7 + 2.1);
     }
 
     this._glowCount = 0; // missile/interceptor updates push glow points

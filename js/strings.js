@@ -7,76 +7,76 @@
 
 export const STRINGS = {
   // --- Title / menu screen --------------------------------------------------
-  title: 'CIWS COMMAND',
-  subtitle: 'Defend your cities with close-in weapon systems.',
+  title: 'CERVIX COMMAND',
+  subtitle: 'Defend your ova against the incoming swarm.',
   howToPlayHeading: 'HOW TO PLAY',
   // [label, ...description lines] — lines are drawn as-is, one per row.
   howToPlay: [
     [
       'AIM',
-      'Move the mouse to aim the CIWS gun.',
+      'Move the mouse to aim the mucus cannon.',
     ],
     [
       'AUTO DEFENSES',
-      'Interceptors launch themselves at distant, high-value threats;',
-      'the laser burns down what gets close.',
+      'Antibodies home in on distant, high-value swimmers;',
+      'the acid gland dissolves what gets close.',
     ],
     [
-      'ARMORY',
-      'Between waves, spend credits on upgrades to protect your cities.',
+      'BIOLAB',
+      'Between waves, spend ATP on upgrades to protect your ova.',
     ],
     [
       'SURVIVE',
-      'Protect six cities. One hit on the CIWS gun ends the run.',
+      'Protect six ova. One sperm through the cervix ends the run.',
     ],
   ],
   keysHint: 'P pause     R restart     M mute',
-  deploy: 'CLICK OR PRESS SPACE TO DEPLOY',
+  deploy: 'CLICK OR PRESS SPACE TO DEFEND',
 
   // --- Touch / mobile variants ----------------------------------------------
   touch: {
-    deploy: 'TAP TO DEPLOY',
+    deploy: 'TAP TO DEFEND',
     // Replaces the AIM row of HOW TO PLAY on touch devices.
     howToAim: [
       'AIM',
-      'Drag on the fire-control pad below the field to lay the gun — your thumb never covers the action.',
+      'Drag on the aim pad below the field to lay the cannon — your thumb never covers the action.',
     ],
-    padLabel: 'FIRE CONTROL',
+    padLabel: 'AIM CONTROL',
   },
   // Shown instead of `deploy` when a saved run is waiting to be resumed.
   menu: {
     continueRun: (wave) => `CONTINUE — WAVE ${wave}`,
-    newGame: 'NEW GAME',
-    continueHint: 'SPACE continues the saved run — NEW GAME forfeits it',
+    newGame: 'NEW CYCLE',
+    continueHint: 'SPACE continues the saved run — NEW CYCLE forfeits it',
   },
 
   // --- In-game HUD -----------------------------------------------------------
   hud: {
     score: 'SCORE',
     wave: 'WAVE',
-    cities: 'CITIES',
-    credits: 'CREDITS',
-    creditsShort: 'CR', // compact corner HUD on narrow windows
+    cities: 'OVA',
+    credits: 'ATP',
+    creditsShort: 'ATP', // compact corner HUD on narrow windows
     muted: 'MUTED (M)',
-    intcpReady: 'INTCP READY',
-    intcpReloading: 'INTCP RELOADING',
-    laserFiring: 'LASER FIRING',
-    laserCharged: 'LASER CHARGED',
-    laserCharging: 'LASER CHARGING',
+    intcpReady: 'ANTIBODY READY',
+    intcpReloading: 'ANTIBODY SYNTH',
+    laserFiring: 'ACID BURN',
+    laserCharged: 'ACID READY',
+    laserCharging: 'ACID BUILDING',
   },
   paused: 'PAUSED',
   pausedHint: 'press P to resume',
 
   // --- Spoken lines (Web Speech) ----------------------------------------------
   voice: {
-    nukeWarning: 'Nuclear launch detected',
+    nukeWarning: 'Mutant swimmer detected',
   },
 
   // --- Game over ---------------------------------------------------------------
   loss: {
-    gunDestroyed: 'Gun destroyed',
-    citiesLost: 'Cities lost',
-    fallback: 'Defeat',
+    gunDestroyed: 'Cervix breached',
+    citiesLost: 'Ova lost',
+    fallback: 'Fertilized',
   },
   gameover: {
     newHighScore: (score) => `NEW HIGH SCORE  ${score}`,
@@ -87,105 +87,105 @@ export const STRINGS = {
     retry: 'CLICK or press SPACE to try again',
   },
 
-  // --- Between-wave armory -------------------------------------------------
+  // --- Between-wave biolab -------------------------------------------------
   shop: {
-    waveCleared: (wave) => `WAVE ${wave} CLEARED`,
-    creditsLine: (credits, earned) => `CREDITS  ${credits}    (+${earned} this wave)`,
+    waveCleared: (wave) => `WAVE ${wave} REPELLED`,
+    creditsLine: (credits, earned) => `ATP  ${credits}    (+${earned} this wave)`,
     breakdownKills: (n) => `Kills +${n}`,
     breakdownClear: (n) => `All-clear +${n}`,
     breakdownClearMissed: 'All-clear —',
-    breakdownCities: (n) => `Cities +${n}`,
-    heading: 'ARMORY — click an item or press its number',
+    breakdownCities: (n) => `Ova +${n}`,
+    heading: 'BIOLAB — click an item or press its number',
     maxedOut: 'MAX',
     soldOut: '—',
-    price: (cost) => `${cost} cr`,
+    price: (cost) => `${cost} atp`,
     nextWave: 'NEXT WAVE ▸',
     nextWaveHint: 'or press SPACE',
-    // Touch armory: tap a row to inspect it, then buy with an explicit button.
-    touchHeading: 'ARMORY — tap an item for details',
-    buy: (cost) => `BUY — ${cost} cr`,
+    // Touch biolab: tap a row to inspect it, then buy with an explicit button.
+    touchHeading: 'BIOLAB — tap an item for details',
+    buy: (cost) => `SYNTH — ${cost} atp`,
     buyMaxed: 'MAXED OUT',
-    buyOwned: 'OWNED',
+    buyOwned: 'ACTIVE',
 
     items: {
       interceptor: {
-        label: 'Interceptor Battery',
-        desc: 'Auto-launching homing missiles',
+        label: 'Antibody Gland',
+        desc: 'Auto-launching homing antibodies',
         info:
-          'Deploy a THAAD-style launcher to the right of the gun. It fires itself ' +
-          'at distant, high-value threats and blasts ' +
+          'Deploy an antibody gland to the right of the cervix. It fires itself ' +
+          'at distant, high-value swimmers and neutralizes ' +
           'everything near the kill.',
       },
       interceptorReload: {
-        label: (level) => `Interceptor Reload (Lv ${level})`,
-        labelMax: 'Interceptor Reload',
-        desc: (cooldown) => `Faster reload between launches  (now ${cooldown}s)`,
+        label: (level) => `Antibody Synthesis (Lv ${level})`,
+        labelMax: 'Antibody Synthesis',
+        desc: (cooldown) => `Faster synthesis between launches  (now ${cooldown}s)`,
         info: (first, last) =>
-          'Interceptors launch themselves at distant, high-value threats ' +
-          'and blast everything near the kill. Each level ' +
-          `shortens the reload between launches (${first}s down to ${last}s).`,
+          'Antibodies home in on distant, high-value swimmers ' +
+          'and neutralize everything near the kill. Each level ' +
+          `shortens the synthesis between launches (${first}s down to ${last}s).`,
       },
       shield: {
-        label: 'Energy Shield',
-        desc: 'Dome over the CIWS — absorbs one warhead, then recharges',
+        label: 'Mucus Plug',
+        desc: 'Plug over the cervix — absorbs one sperm, then regrows',
         info:
-          'An energy dome over the CIWS that absorbs one warhead, then ' +
-          'recharges.',
+          'A cervical mucus plug over the cervix that absorbs one sperm, then ' +
+          'regrows.',
       },
       shieldRecharge: {
-        label: (level) => `Shield Recharge (Lv ${level})`,
-        labelMax: 'Shield Recharge',
-        desc: (seconds) => `Faster shield recharge  (now ${seconds}s)`,
+        label: (level) => `Mucus Regrowth (Lv ${level})`,
+        labelMax: 'Mucus Regrowth',
+        desc: (seconds) => `Faster plug regrowth  (now ${seconds}s)`,
         info: (last) =>
-          'Shortens how long the dome takes to come back after absorbing a ' +
-          `hit (down to ${last}s). It also returns fully charged each wave.`,
+          'Shortens how long the plug takes to regrow after absorbing a ' +
+          `hit (down to ${last}s). It also regrows fully each wave.`,
       },
       laser: {
-        label: 'Laser Turret',
-        desc: 'Autonomous beam — zaps drones & plain RVs',
+        label: 'Acid Gland',
+        desc: 'Autonomous pH beam — dissolves swarmers & plain sperm',
         info:
-          'An autonomous beam emplacement left of the gun. It tracks ' +
-          'the lowest drone or RV in range and burns it down — weaker at ' +
+          'An autonomous acid emitter left of the cervix. It tracks ' +
+          'the lowest swarmer or sperm in range and dissolves it — weaker at ' +
           'long range, and it cannot depress below ~15°.',
       },
       laserRecharge: {
-        label: (level) => `Laser Recharge (Lv ${level})`,
-        labelMax: 'Laser Recharge',
-        desc: (seconds) => `Faster recharge between shots  (now ${seconds}s)`,
+        label: (level) => `Acid Buildup (Lv ${level})`,
+        labelMax: 'Acid Buildup',
+        desc: (seconds) => `Faster buildup between burns  (now ${seconds}s)`,
         info: (first, last) =>
-          `Shortens the recharge between laser burns (${first}s down to ` +
+          `Shortens the buildup between acid burns (${first}s down to ` +
           `${last}s), so it clears swarms much faster.`,
       },
       fireRate: {
-        label: (level) => `Upgrade Fire Rate (Lv ${level})`,
-        labelMax: 'Upgrade Fire Rate',
-        desc: 'Faster CIWS cycle rate',
+        label: (level) => `Upgrade Spray Rate (Lv ${level})`,
+        labelMax: 'Upgrade Spray Rate',
+        desc: 'Faster mucus cannon cycle rate',
         info:
-          'Spins the CIWS barrell faster for a denser bullet stream — compounds with Twin Barrels.',
+          'Pumps the gland faster for a denser spray stream — compounds with Twin Glands.',
       },
       twin: {
-        label: 'Twin Barrels',
-        desc: 'Add a 2nd barrel — double the rounds',
-        descOwned: 'Dual side-by-side cannons',
+        label: 'Twin Glands',
+        desc: 'Add a 2nd nozzle — double the globs',
+        descOwned: 'Dual side-by-side nozzles',
         info:
-          'Mounts a second gatling cluster. ' +
-          'sends two rounds flying side by side — double the bullet density.',
+          'Mounts a second secretory gland. ' +
+          'Sends two globs flying side by side — double the spray density.',
       },
     },
   },
 
   // --- Threat ID tags (the flavor targeting boxes over enemies) ------------
   threatNames: {
-    normal: 'RV',
-    mirv: 'MIRV', // a carrier bus that hasn't split yet
-    evasive: 'EVASIVE RV',
-    hypersonic: 'HYPERSONIC',
-    cruise: 'CRUISE MSL',
-    stealth: 'STEALTH MSL', // only readable once it decloaks
-    drone: 'UAV',
-    bomber: 'BOMBER',
-    glidebomb: 'GLIDE BOMB',
-    nuke: 'NUKE',
+    normal: 'SPERM',
+    mirv: 'CLUMP', // a clump that hasn't split into single sperm yet
+    evasive: 'WRIGGLER',
+    hypersonic: 'SPRINTER',
+    cruise: 'WALL-HUGGER',
+    stealth: 'GHOST SPERM', // only readable once it decloaks
+    drone: 'SWARMER',
+    bomber: 'ENZYME BOMBER',
+    glidebomb: 'ACROSOME',
+    nuke: 'MUTANT',
   },
 
   // --- Secret dev console (backquote `) ------------------------------------
@@ -193,23 +193,23 @@ export const STRINGS = {
     title: 'DEV CONSOLE',
     hint: 'click a row or press its key — ` or ESC closes',
     badge: 'DEV', // on-screen tag while god mode / a sandbox is active
-    godMode: 'God mode — cities & gun are invincible',
-    loadout: 'Sandbox loadout — start with interceptor + laser',
-    touchControls: 'Touch controls — fire-control pad below the field',
+    godMode: 'God mode — ova & cervix are invincible',
+    loadout: 'Sandbox loadout — start with antibody + acid gland',
+    touchControls: 'Touch controls — aim pad below the field',
     exitSandbox: 'Exit sandbox (back to menu)',
     on: 'ON',
     off: 'OFF',
     scenariosHeading: 'SCENARIOS — endless single-threat sandbox',
     scenarios: {
-      bombers: 'Bomber parade — flares, jinks, glide bombs',
-      drones: 'Drone swarms',
-      cruise: 'Cruise missiles',
-      stealth: 'Stealth cruise',
-      hypersonics: 'Hypersonics',
-      evasive: 'Evasive RVs',
-      mirvs: 'MIRV buses',
-      nukes: 'Nukes on a loop',
-      rain: 'Normal RV rain',
+      bombers: 'Enzyme bomber parade — decoys, jinks, acrosome bombs',
+      drones: 'Swarmer swarms',
+      cruise: 'Wall-huggers',
+      stealth: 'Ghost sperm',
+      hypersonics: 'Sprinters',
+      evasive: 'Wrigglers',
+      mirvs: 'Sperm clumps',
+      nukes: 'Mutants on a loop',
+      rain: 'Normal sperm rain',
     },
   },
 };

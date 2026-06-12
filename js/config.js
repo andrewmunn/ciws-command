@@ -395,16 +395,19 @@ export const CONFIG = {
   },
 
   // --- Visual / palette (CSS color strings; THREE.Color accepts these) ----
+  // Themed as the warm, fleshy interior of the reproductive tract: deep red
+  // walls, golden ova, pale-cream sperm, acid-green and immune defenses. The
+  // exotic sperm variants keep distinct hues so they stay readable at a glance.
   colors: {
-    sky: ['#0a1428', '#05070d'],
-    ground: '#0d1320',
-    groundLine: '#2c5a8f',
-    city: '#37e0d8',
-    cityDead: '#2a3340',
-    turret: '#8893a4',
-    turretActive: '#ffb347',
-    barrel: '#c2ccda',
-    missile: '#ff5a4d',
+    sky: ['#3a0d20', '#160206'], // soft tissue depth — lit pink fading to dark
+    ground: '#2a0a16', // the vaginal wall floor
+    groundLine: '#d05a86', // pink membrane horizon
+    city: '#ffd86b', // a healthy golden ovum
+    cityDead: '#4a3a2a', // a spent / ruptured ovum
+    turret: '#e08fb0', // cervix tissue
+    turretActive: '#ff5fa0',
+    barrel: '#f4c6d8',
+    missile: '#eaf0f4', // a plain sperm — pale translucent cream
     missileEvasive: '#c264ff',
     missileHypersonic: '#ff7a1f',
     missileMirv: '#9bff42',
@@ -414,28 +417,28 @@ export const CONFIG = {
     missileGlidebomb: '#cbb878',
     missileDrone: '#c9d4df',
     missileNuke: '#ff2438',
-    flare: '#ffce6e',
-    missileTrail: '#ff5a4d',
-    laser: '#ff4df0',
-    bullet: '#ffe98a',
+    flare: '#ffce6e', // ejected decoy proteins
+    missileTrail: '#dfe7ee', // the lashing sperm tail
+    laser: '#9bff6a', // corrosive acid beam
+    bullet: '#d8f0e0', // a glob of cervical mucus
     hitSpark: '#ffffff',
-    smoke: '#3a4252',
-    rocketSmoke: '#e6ebf2',
+    smoke: '#3a2230', // fleshy haze
+    rocketSmoke: '#f0e6ec',
     fireball: '#ffd9a0',
-    interceptor: '#7cc6ff',
-    interceptorTrail: '#7cc6ff',
-    interceptorBlast: '#9be7ff',
+    interceptor: '#cfe8a0', // antibody / leukocyte
+    interceptorTrail: '#cfe8a0',
+    interceptorBlast: '#d8ffb0',
     lock: '#86f7ff',
-    shield: '#6cf0ff',
-    explosion: '#ff5a4d', // standard-RV warhead pop — reads red, like the missile
+    shield: '#bfffd8', // translucent mucus plug
+    explosion: '#ff5a4d', // a sperm bursting — reads red against the cream body
     groundExplosion: '#ff5a4d',
     crosshair: '#ffe98a',
     crosshairEmpty: '#ff5a4d',
     credits: '#ffd86b',
-    shopPanel: 'rgba(14,22,38,0.92)',
-    shopRow: 'rgba(40,58,86,0.55)',
-    shopRowHover: 'rgba(80,120,170,0.7)',
-    hud: '#bcd2e6',
-    hudDim: '#5a6b7d',
+    shopPanel: 'rgba(30,8,18,0.92)',
+    shopRow: 'rgba(80,28,48,0.55)',
+    shopRowHover: 'rgba(150,60,100,0.7)',
+    hud: '#f2cdda',
+    hudDim: '#7d5a68',
   },
 };

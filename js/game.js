@@ -767,8 +767,8 @@ export class Game {
   }
 
   /**
-   * Nuke: the launch is DETECTED a few seconds before the warhead appears —
-   * klaxon plus a synthetic "Nuclear launch detected" voice — then it spawns.
+   * Mutant: the threat is DETECTED a few seconds before it appears —
+   * klaxon plus a synthetic "Mutant swimmer detected" voice — then it spawns.
    */
   spawnNuke() {
     this.nukesSpawned++;
@@ -1624,20 +1624,19 @@ export class Game {
       const fade = 1 - (d2 / hoverR2) ** 2; // soft edge instead of popping
       const p = this.renderer.worldToScreen(m.x, m.y);
       const h = half[m.type] ?? 11;
-      const arm = Math.max(3, h * 0.45); // corner bracket arm length
       const hot = m.type === 'nuke';
       const col = hot ? C.crosshairEmpty : C.lock;
-      ctx.globalAlpha = (hot ? 0.9 : 0.55) * fade;
+      const tagAlpha = (hot ? 0.9 : 0.55) * fade;
       ctx.strokeStyle = col;
-      for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
-        const cx = p.x + sx * h;
-        const cy = p.y + sy * h;
-        ctx.beginPath();
-        ctx.moveTo(cx, cy + arm * -sy);
-        ctx.lineTo(cx, cy);
-        ctx.lineTo(cx + arm * -sx, cy);
-        ctx.stroke();
-      }
+      ctx.lineWidth = hot ? 1.6 : 1.2;
+      // Cell-membrane reticle: a softly wobbling amoeboid ring around the
+      // track with a fainter inner iris — a microscope picking out a cell.
+      const ph = this.time * 0.9 + (m.id || 0) * 0.7;
+      ctx.globalAlpha = tagAlpha;
+      this._membraneRing(ctx, p.x, p.y, h * 1.15, h * 0.14, 7, ph);
+      ctx.globalAlpha = tagAlpha * 0.45;
+      this._membraneRing(ctx, p.x, p.y, h * 0.6, h * 0.1, 6, -ph * 1.4);
+      ctx.globalAlpha = tagAlpha;
       // De-clutter: a tag that would overprint one already on screen (e.g. a
       // glide bomb just off its bomber's rack) keeps its brackets but stays
       // silent — the display only labels what it can write legibly.
@@ -1754,6 +1753,22 @@ export class Game {
     ctx.restore();
   }
 
+  /** A softly wobbling closed ring — an amoeboid cell-membrane outline. */
+  _membraneRing(ctx, cx, cy, r, amp, lobes, phase) {
+    const N = 40;
+    ctx.beginPath();
+    for (let i = 0; i <= N; i++) {
+      const a = (i / N) * TAU;
+      const rr = r + amp * Math.sin(lobes * a + phase);
+      const px = cx + Math.cos(a) * rr;
+      const py = cy + Math.sin(a) * rr;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.stroke();
+  }
+
   drawCrosshair(ctx) {
     const t = this.activeTurret;
     // Red only when the gun mount is gone (nothing left to aim) during play;
@@ -1773,21 +1788,34 @@ export class Game {
     }
     ctx.save();
     ctx.strokeStyle = col;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.arc(x, y, 11, 0, TAU);
-    ctx.stroke();
-    ctx.beginPath();
-    for (const [dx, dy] of [
-      [-16, 0],
-      [16, 0],
-      [0, -16],
-      [0, 16],
-    ]) {
-      ctx.moveTo(x + Math.sign(dx) * 6, y + Math.sign(dy) * 6);
-      ctx.lineTo(x + dx, y + dy);
+    ctx.lineWidth = 1.6;
+    // The aim marker is a living cell: a wobbling membrane ring, a few flagella
+    // flicking outward, and a bright nucleus pinned to the exact aim point.
+    const ph = this.time * 1.4;
+    this._membraneRing(ctx, x, y, 10, 1.6, 6, ph);
+    for (let k = 0; k < 4; k++) {
+      const a = (k / 4) * TAU + 0.15 * Math.sin(ph + k);
+      const ux = Math.cos(a);
+      const uy = Math.sin(a);
+      const perpx = -uy;
+      const perpy = ux;
+      const r0 = 11;
+      const r1 = 19;
+      const bow = 3 * Math.sin(ph * 1.6 + k * 1.7); // the hair lashes
+      ctx.beginPath();
+      ctx.moveTo(x + ux * r0, y + uy * r0);
+      ctx.quadraticCurveTo(
+        x + ux * ((r0 + r1) / 2) + perpx * bow,
+        y + uy * ((r0 + r1) / 2) + perpy * bow,
+        x + ux * r1,
+        y + uy * r1
+      );
+      ctx.stroke();
     }
-    ctx.stroke();
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.arc(x, y, 1.8, 0, TAU);
+    ctx.fill();
     ctx.restore();
   }
 
@@ -1801,7 +1829,7 @@ export class Game {
       weight = 'normal',
       glow = false,
     } = opts;
-    ctx.font = `${weight} ${size}px "Courier New", monospace`;
+    ctx.font = `${weight} ${size}px "Trebuchet MS", "Avenir Next", "Segoe UI", system-ui, sans-serif`;
     ctx.fillStyle = color;
     ctx.textAlign = align;
     ctx.textBaseline = baseline;
@@ -2384,7 +2412,7 @@ export class Game {
 
   /** Greedy word-wrap using real text metrics at the given font size. */
   _wrapText(ctx, str, maxW, size) {
-    ctx.font = `normal ${size}px "Courier New", monospace`;
+    ctx.font = `normal ${size}px "Trebuchet MS", "Avenir Next", "Segoe UI", system-ui, sans-serif`;
     const lines = [];
     let line = '';
     for (const word of str.split(/\s+/)) {
