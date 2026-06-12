@@ -4,6 +4,12 @@
 // seconds, angles in radians unless a name ends in "Deg".
 // ---------------------------------------------------------------------------
 
+// One shared price ladder for the two auto-weapon upgrade tracks — the
+// interceptor's reload and the laser's recharge — so a given level costs the
+// same on either. The interceptor track runs the full ladder (7 levels); the
+// laser track uses the first 5 (its recharge ladder is shorter).
+const autoWeaponUpgradeCosts = [30, 55, 85, 130, 190, 260, 350];
+
 export const CONFIG = {
   // --- World layout -------------------------------------------------------
   // Fixed virtual resolution the simulation always runs at. The window can be
@@ -337,7 +343,7 @@ export const CONFIG = {
   // --- Laser (purchasable autonomous point-defense beam) ------------------
   laser: {
     cost: 30, // one-time purchase
-    upgradeCosts: [50, 80, 115, 170, 240], // recharge upgrades after it's owned
+    upgradeCosts: autoWeaponUpgradeCosts.slice(0, 5), // shared ladder (see top)
     cooldowns: [5, 4, 3, 2.2, 1.5, 1], // recharge between burns, by upgrade level
     dps: 2.6, // HP/s burned at point-blank; falls off with distance
     fullPowerDist: 280, // beam burns at full dps inside this distance
@@ -382,7 +388,7 @@ export const CONFIG = {
 
   // --- Economy (credits = the shop currency, separate from score) ---------
   economy: {
-    startCredits: 4,
+    startCredits: 20, // most of the way to a first weapon system (30) at wave 1's end
     // Per-type kill bounty. A MIRV carrier pays its big bounty only while
     // unsplit; its children (and a post-split body) pay the normal rate.
     bounty: {
@@ -408,7 +414,7 @@ export const CONFIG = {
     // Interceptor stock is unlimited; you buy down the reload cooldown.
     // Length = max upgrade levels (matches interceptor.cooldowns - 1).
     interceptorCost: 30, // buy the battery itself (priced level with laser/strike)
-    interceptorCooldownCosts: [30, 55, 85, 130, 190, 260, 350],
+    interceptorCooldownCosts: autoWeaponUpgradeCosts, // shared ladder (see top)
     // One extra top level stands in for the removed twin-barrel upgrade.
     fireRateCosts: [30, 50, 75, 110, 160, 220, 300],
     fireRateFactor: 0.82, // fire interval multiplier per level

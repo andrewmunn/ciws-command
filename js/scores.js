@@ -17,7 +17,8 @@ export const MAX_SCORES = 10;
 // pre-versioning era count as version 1.
 //   v2 — F-16 airstrike, MIRV nuke, laser buff, twin-barrel removal.
 //   v3 — armory repricing: laser 85->30, interceptor 12->30, strike 60->30.
-export const BALANCE_VERSION = 3;
+//   v4 — unified laser/interceptor upgrade ladder; start credits 4->20.
+export const BALANCE_VERSION = 4;
 
 function defaultStorage() {
   try {
