@@ -83,7 +83,7 @@ export const STRINGS = {
   voice: {
     nukeWarning: 'Nuclear launch detected',
     mirvNukeWarning: 'Warning. MIRV nuclear launch detected',
-    engaging: 'Engaging hostiles', // the strike flight checks in
+    engaging: 'Engaging hostiles!', // the strike flight checks in
   },
 
   // --- Game over ---------------------------------------------------------------
@@ -183,12 +183,12 @@ export const STRINGS = {
       },
       airstrike: {
         label: 'F-16 Strike Package',
-        desc: 'SPACE: a flight of F-16s engages every threat in the sky',
+        desc: 'A wing of F-16s engages every threat in the sky',
         descArmed: 'In the rack — press SPACE mid-wave to scramble',
         info:
-          'Racks one airstrike. Call it mid-wave and one F-16 per two threats ' +
+          'Racks an airstrike. Call it mid-wave and one F-16 per two threats ' +
           'sweeps in on its own intercept course, each firing two air-to-air ' +
-          'missiles — one per enemy. One package at a time; an unused package ' +
+          'missiles. One package at a time; an unused package ' +
           'carries to the next wave.',
       },
     },
